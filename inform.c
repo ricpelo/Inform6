@@ -1055,13 +1055,13 @@ static int compile(int number_of_files_specified, char *file1, char *file2)
       return 1;
 
     select_target(glulx_mode);
-
+/*
     if (define_INFIX_switch && glulx_mode) {
         printf("Infix (-X) facilities are not available in Glulx: \
 disabling -X switch\n");
         define_INFIX_switch = FALSE;
     }
-
+*/
     if (module_switch && glulx_mode) {
         printf("Modules are not available in Glulx: \
 disabling -M switch\n");

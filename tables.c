@@ -47,6 +47,7 @@ int32 code_offset,
       array_names_offset,
       prop_defaults_offset,
       prop_values_offset,
+	  prop_indiv_values_offset,
       static_memory_offset,
       attribute_names_offset,
       action_names_offset,
@@ -210,6 +211,9 @@ static int32 rough_size_of_paged_memory_g(void)
     total += (NUM_ATTR_BYTES*8) * 4;
     total += (no_actions + no_fake_actions) * 4;
     total += 4 + no_arrays * 4;
+
+    total += (no_globals + no_named_routines + no_named_constants) * 4;
+    total += 4 + no_named_routines / 8;
 
     total += 4 + no_Inform_verbs * 4; /* index of grammar tables */
     total += grammar_lines_top; /* grammar tables */
@@ -1364,7 +1368,7 @@ static void construct_storyfile_g(void)
     WriteInt32(p+mark, 0);
     mark += 4;
 
-    /* -------------------- Table of Property Names ------------------------ */
+    /* --------- Table of Property and Identifier Names -------------------- */
 
     /* We try to format this bit with some regularity...
        address of common properties
@@ -1393,6 +1397,11 @@ static void construct_storyfile_g(void)
     WriteInt32(p+identifier_names_offset+8, Write_RAM_At + mark);
     WriteInt32(p+identifier_names_offset+12, 
       no_individual_properties-INDIV_PROP_START);
+	
+	// The Common properties table has a fixed size of 64 elements.
+	//printf ("Common properties: %u, Indiv properties: %u, Start of Individual properties: %u\n",no_properties,INDIV_PROP_START,no_individual_properties);
+	//mark = mark + 4*((INDIV_PROP_START/4)-no_properties); // Leave 64 elements for common properties
+	prop_indiv_values_offset = mark;
     for (i=INDIV_PROP_START; i<no_individual_properties; i++) {
       j = individual_name_strings[i];
       if (j)
@@ -1403,7 +1412,8 @@ static void construct_storyfile_g(void)
 
     WriteInt32(p+identifier_names_offset+16, Write_RAM_At + mark);
     WriteInt32(p+identifier_names_offset+20, NUM_ATTR_BYTES*8);
-    for (i=0; i<NUM_ATTR_BYTES*8; i++) {
+    attribute_names_offset = mark;
+	for (i=0; i<NUM_ATTR_BYTES*8; i++) {
       j = attribute_name_strings[i];
       if (j)
         j = Write_Strings_At + compressed_offsets[j-1];
@@ -1426,13 +1436,34 @@ static void construct_storyfile_g(void)
     array_names_offset = mark;
     WriteInt32(p+mark, no_arrays);
     mark += 4;
-    for (i=0; i<no_arrays; i++) {
-      j = array_name_strings[i];
-      if (j)
-        j = Write_Strings_At + compressed_offsets[j-1];
-      WriteInt32(p+mark, j);
-      mark += 4;
-    }    
+
+    array_names_offset = mark;
+    global_names_offset = mark + 4*no_arrays;
+    routine_names_offset = global_names_offset + 4*no_globals;
+    constant_names_offset = routine_names_offset + 4*no_named_routines;
+
+    for (i=0; i<no_arrays + no_globals
+                    + no_named_routines + no_named_constants; i++)
+    {   if ((i == no_arrays) && (define_INFIX_switch == FALSE)) break;
+        j = array_name_strings[i];
+        if (j)
+            j = Write_Strings_At + compressed_offsets[j-1];
+        WriteInt32(p+mark, j);
+        mark += 4;
+    }
+
+    routine_flags_array_offset = mark;
+
+    if (define_INFIX_switch)
+    {   for (i=0, k=1, l=0; i<no_named_routines; i++)
+        {   if (sflags[named_routine_symbols[i]] & STAR_SFLAG) l=l+k;
+            k=k*2;
+            if (k==256) { p[mark++] = l; k=1; l=0; }
+        }
+        if (k!=1) p[mark++]=l;
+    }
+    while (mark % 4 >0) mark++;
+
 
     individuals_offset = mark;
 

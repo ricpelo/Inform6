@@ -47,7 +47,6 @@ int32 code_offset,
       array_names_offset,
       prop_defaults_offset,
       prop_values_offset,
-	  prop_indiv_values_offset,
       static_memory_offset,
       attribute_names_offset,
       action_names_offset,
@@ -1397,11 +1396,6 @@ static void construct_storyfile_g(void)
     WriteInt32(p+identifier_names_offset+8, Write_RAM_At + mark);
     WriteInt32(p+identifier_names_offset+12, 
       no_individual_properties-INDIV_PROP_START);
-	
-	// The Common properties table has a fixed size of 64 elements.
-	//printf ("Common properties: %u, Indiv properties: %u, Start of Individual properties: %u\n",no_properties,INDIV_PROP_START,no_individual_properties);
-	//mark = mark + 4*((INDIV_PROP_START/4)-no_properties); // Leave 64 elements for common properties
-	prop_indiv_values_offset = mark;
     for (i=INDIV_PROP_START; i<no_individual_properties; i++) {
       j = individual_name_strings[i];
       if (j)

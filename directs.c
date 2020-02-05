@@ -1,8 +1,8 @@
 /* ------------------------------------------------------------------------- */
 /*   "directs" : Directives (# commands)                                     */
 /*                                                                           */
-/*   Part of Inform 6.32                                                     */
-/*   copyright (c) Graham Nelson 1993 - 2012                                 */
+/*   Part of Inform 6.34                                                     */
+/*   copyright (c) Graham Nelson 1993 - 2018                                 */
 /*                                                                           */
 /* ------------------------------------------------------------------------- */
 
@@ -14,7 +14,7 @@ int no_routines,                   /* Number of routines compiled so far     */
     no_termcs;                     /* Number of terminating characters       */
 int terminating_characters[32];
 
-int32 routine_starts_line;         /* Source code line on which the current
+brief_location routine_starts_line; /* Source code location where the current
                                       routine starts.  (Useful for reporting
                                       "unused variable" warnings on the start
                                       line rather than the end line.)        */
@@ -47,7 +47,9 @@ extern int parse_given_directive(int internal_flag)
 
         Returns: FALSE if program continues, TRUE if end of file reached.    */
 
-    int *trace_level; int32 i, j, k, n, flag;
+    int *trace_level = NULL; int32 i, j, k, n, flag;
+    const char *constant_name;
+    debug_location_beginning beginning_debug_location;
 
     switch(token_value)
     {
@@ -79,6 +81,12 @@ extern int parse_given_directive(int internal_flag)
                return ebf_error_recover("abbreviation string", token_text);
            if (strlen(token_text)<2)
            {   error_named("It's not worth abbreviating", token_text);
+               continue;
+           }
+           /* Abbreviation string with null must fit in a MAX_ABBREV_LENGTH
+              array. */
+           if (strlen(token_text)>=MAX_ABBREV_LENGTH)
+           {   error_named("Abbreviation too long", token_text);
                continue;
            }
            make_abbreviation(token_text);
@@ -118,20 +126,40 @@ extern int parse_given_directive(int internal_flag)
 
       ParseConstantSpec:
         get_next_token(); i = token_value;
+        beginning_debug_location = get_token_location_beginning();
 
         if ((token_type != SYMBOL_TT)
             || (!(sflags[i] & (UNKNOWN_SFLAG + REDEFINABLE_SFLAG))))
+        {   discard_token_location(beginning_debug_location);
             return ebf_error_recover("new constant name", token_text);
+        }
 
         assign_symbol(i, 0, CONSTANT_T);
+        constant_name = token_text;
 
         get_next_token();
 
         if ((token_type == SEP_TT) && (token_value == COMMA_SEP))
+        {   if (debugfile_switch && !(sflags[i] & REDEFINABLE_SFLAG))
+            {   debug_file_printf("<constant>");
+                debug_file_printf("<identifier>%s</identifier>", constant_name);
+                write_debug_symbol_optional_backpatch(i);
+                write_debug_locations(get_token_location_end(beginning_debug_location));
+                debug_file_printf("</constant>");
+            }
             goto ParseConstantSpec;
+        }
 
         if ((token_type == SEP_TT) && (token_value == SEMICOLON_SEP))
+        {   if (debugfile_switch && !(sflags[i] & REDEFINABLE_SFLAG))
+            {   debug_file_printf("<constant>");
+                debug_file_printf("<identifier>%s</identifier>", constant_name);
+                write_debug_symbol_optional_backpatch(i);
+                write_debug_locations(get_token_location_end(beginning_debug_location));
+                debug_file_printf("</constant>");
+            }
             return FALSE;
+        }
 
         if (!((token_type == SEP_TT) && (token_value == SETEQUALS_SEP)))
             put_token_back();
@@ -158,6 +186,16 @@ Fake_Action directives to a point after the inclusion of \"Parser\".)");
                 }
             }
         }
+
+        if (debugfile_switch && !(sflags[i] & REDEFINABLE_SFLAG))
+        {   debug_file_printf("<constant>");
+            debug_file_printf("<identifier>%s</identifier>", constant_name);
+            write_debug_symbol_optional_backpatch(i);
+            write_debug_locations
+                (get_token_location_end(beginning_debug_location));
+            debug_file_printf("</constant>");
+        }
+
         get_next_token();
         if ((token_type == SEP_TT) && (token_value == COMMA_SEP))
             goto ParseConstantSpec;
@@ -234,8 +272,8 @@ Fake_Action directives to a point after the inclusion of \"Parser\".)");
                 put_token_back();
             }
             else {
-                put_token_back();
                 assembly_operand AO;
+                put_token_back();
                 AO = parse_expression(CONSTANT_CONTEXT);
                 if (module_switch && (AO.marker != 0))
                     error("A definite value must be given as a Dictionary flag");
@@ -247,8 +285,8 @@ Fake_Action directives to a point after the inclusion of \"Parser\".)");
                     put_token_back();
                 }
                 else {
-                    put_token_back();
                     assembly_operand AO;
+                    put_token_back();
                     AO = parse_expression(CONSTANT_CONTEXT);
                     if (module_switch && (AO.marker != 0))
                         error("A definite value must be given as a Dictionary flag");
@@ -611,6 +649,72 @@ Fake_Action directives to a point after the inclusion of \"Parser\".)");
         return FALSE;                                     /* See "objects.c" */
 
     /* --------------------------------------------------------------------- */
+    /*   Origsource <file>                                                   */
+    /*   Origsource <file> <line>                                            */
+    /*   Origsource <file> <line> <char>                                     */
+    /*   Origsource                                                          */
+    /*                                                                       */
+    /*   The first three forms declare that all following lines are derived  */
+    /*   from the named Inform 7 source file (with an optional line number   */
+    /*   and character number). This will be reported in error messages and  */
+    /*   in debug output. The declaration holds through the next Origsource  */
+    /*   directive (but does not apply to included files).                   */
+    /*                                                                       */
+    /*   The fourth form, with no arguments, clears the declaration.         */
+    /*                                                                       */
+    /*   Unlike the Include directive, Origsource does not open the named    */
+    /*   file or even verify that it exists. The filename is treated as an   */
+    /*   opaque string.                                                      */
+    /* --------------------------------------------------------------------- */
+
+    case ORIGSOURCE_CODE:
+        {
+            char *origsource_file = NULL;
+            int32 origsource_line = 0;
+            int32 origsource_char = 0;
+
+            /* Parse some optional tokens followed by a mandatory semicolon. */
+
+            get_next_token();
+            if (!((token_type == SEP_TT) && (token_value == SEMICOLON_SEP))) {
+                if (token_type != DQ_TT) {
+                    return ebf_error_recover("a file name in double-quotes",
+                        token_text);
+                }
+                origsource_file = token_text;
+
+                get_next_token();
+                if (!((token_type == SEP_TT) && (token_value == SEMICOLON_SEP))) {
+                    if (token_type != NUMBER_TT) {
+                        return ebf_error_recover("a file line number",
+                            token_text);
+                    }
+                    origsource_line = token_value;
+                    if (origsource_line < 0)
+                        origsource_line = 0;
+
+                    get_next_token();
+                    if (!((token_type == SEP_TT) && (token_value == SEMICOLON_SEP))) {
+                        if (token_type != NUMBER_TT) {
+                            return ebf_error_recover("a file line number",
+                                token_text);
+                        }
+                        origsource_char = token_value;
+                        if (origsource_char < 0)
+                            origsource_char = 0;
+                        
+                        get_next_token();
+                    }
+                }
+            }
+
+            put_token_back();
+
+            set_origsource_location(origsource_file, origsource_line, origsource_char);
+        }
+        break;
+
+    /* --------------------------------------------------------------------- */
     /*   Property [long] [additive] name [alias oldname]                     */
     /* --------------------------------------------------------------------- */
 
@@ -771,8 +875,7 @@ Fake_Action directives to a point after the inclusion of \"Parser\".)");
             local_variable_texts[3] = "dummy4";
 
             assign_symbol(i,
-                assemble_routine_header(k, FALSE, (char *) symbs[i],
-                    &token_line_ref, FALSE, i),
+                assemble_routine_header(k, FALSE, (char *) symbs[i], FALSE, i),
                 ROUTINE_T);
 
             /*  Ensure the return value of a stubbed routine is false,
@@ -787,7 +890,7 @@ Fake_Action directives to a point after the inclusion of \"Parser\".)");
 
             for (i=1; i<=k; i++) variable_usage[i] = 1;
             sequence_point_follows = FALSE;
-            assemble_routine_end(FALSE, &token_line_ref);
+            assemble_routine_end(FALSE, get_token_locations());
         }
         break;
 
@@ -914,6 +1017,9 @@ the first constant definition");
             break;
         }
 
+        if (debugfile_switch)
+        {   write_debug_undef(token_value);
+        }
         end_symbol_scope(token_value);
         sflags[token_value] |= USED_SFLAG;
         break;

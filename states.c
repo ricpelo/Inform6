@@ -1,8 +1,8 @@
 /* ------------------------------------------------------------------------- */
 /*   "states" :  Statement translator                                        */
 /*                                                                           */
-/*   Part of Inform 6.32                                                     */
-/*   copyright (c) Graham Nelson 1993 - 2012                                 */
+/*   Part of Inform 6.34                                                     */
+/*   copyright (c) Graham Nelson 1993 - 2018                                 */
 /*                                                                           */
 /* ------------------------------------------------------------------------- */
 
@@ -293,8 +293,8 @@ static void parse_print_z(int finally_return)
         switch(token_type)
         {   case DQ_TT:
               if (strlen(token_text) > 32)
-              {   AO.marker = STRING_MV;
-                  AO.type   = LONG_CONSTANT_OT;
+              {   INITAOT(&AO, LONG_CONSTANT_OT);
+                  AO.marker = STRING_MV;
                   AO.value  = compile_string(token_text, FALSE, FALSE);
                   assemblez_1(print_paddr_zc, AO);
                   if (finally_return)
@@ -417,12 +417,12 @@ static void parse_print_z(int finally_return)
 
                         case SYMBOL_TT:
                           if (sflags[token_value] & UNKNOWN_SFLAG)
-                          {   AO.type = LONG_CONSTANT_OT;
+                          {   INITAOT(&AO, LONG_CONSTANT_OT);
                               AO.value = token_value;
                               AO.marker = SYMBOL_MV;
                           }
                           else
-                          {   AO.type = LONG_CONSTANT_OT;
+                          {   INITAOT(&AO, LONG_CONSTANT_OT);
                               AO.value = svals[token_value];
                               AO.marker = IROUTINE_MV;
                               if (stypes[token_value] != ROUTINE_T)
@@ -522,19 +522,17 @@ static void parse_print_g(int finally_return)
         {   case DQ_TT:
               /* We can't compile a string into the instruction,
                  so this always goes into the string area. */
-              {   AO.marker = STRING_MV;
-                  AO.type   = CONSTANT_OT;
+              {   INITAOT(&AO, CONSTANT_OT);
+                  AO.marker = STRING_MV;
                   AO.value  = compile_string(token_text, FALSE, FALSE);
                   assembleg_1(streamstr_gc, AO);
                   if (finally_return)
                   {   get_next_token();
                       if ((token_type == SEP_TT)
                           && (token_value == SEMICOLON_SEP))
-                      {   AO.type = BYTECONSTANT_OT; 
-                          AO.value = 0x0A; AO.marker = 0;
+                      {   INITAOTV(&AO, BYTECONSTANT_OT, 0x0A);
                           assembleg_1(streamchar_gc, AO); 
-                          AO.type = BYTECONSTANT_OT; 
-                          AO.value = 1; AO.marker = 0;
+                          INITAOTV(&AO, BYTECONSTANT_OT, 1);
                           assembleg_1(return_gc, AO); 
                           return;
                       }
@@ -582,7 +580,7 @@ static void parse_print_g(int finally_return)
                                   {   assembleg_2(stkpeek_gc, zero_operand, 
                                       stack_pointer);
                                   }
-                                  AO2.type = HALFCONSTANT_OT; AO2.value = 0x100; AO2.marker = 0;
+                                  INITAOTV(&AO2, HALFCONSTANT_OT, 0x100);
                                   assembleg_2_branch(jgeu_gc, AO1, AO2, 
                                       ln = next_label++);
                                   ln2 = next_label++;
@@ -618,9 +616,8 @@ static void parse_print_g(int finally_return)
                                   AO1 = code_generate(
                                       parse_expression(QUANTITY_CONTEXT),
                                       QUANTITY_CONTEXT, -1);
-                                  AO2.type = BYTECONSTANT_OT;
-                                  AO2.value = 3;
-                                  AO2.marker = 0;
+                                  INITAOT(&AO2, BYTECONSTANT_OT);
+                                  AO2.value = GOBJFIELD_NAME();
                                   assembleg_3(aload_gc, AO1, AO2, 
                                     stack_pointer);
                                   assembleg_1(streamstr_gc, stack_pointer);
@@ -655,12 +652,12 @@ static void parse_print_g(int finally_return)
 
                         case SYMBOL_TT:
                           if (sflags[token_value] & UNKNOWN_SFLAG)
-                          {   AO.type = CONSTANT_OT;
+                          {   INITAOT(&AO, CONSTANT_OT);
                               AO.value = token_value;
                               AO.marker = SYMBOL_MV;
                           }
                           else
-                          {   AO.type = CONSTANT_OT;
+                          {   INITAOT(&AO, CONSTANT_OT);
                               AO.value = svals[token_value];
                               AO.marker = IROUTINE_MV;
                               if (stypes[token_value] != ROUTINE_T)
@@ -671,8 +668,7 @@ static void parse_print_g(int finally_return)
                           PrintByRoutine:
 
                           get_next_token();
-                          AO2.type = ZEROCONSTANT_OT;
-                          AO2.value = 0; AO2.marker = 0;
+                          INITAOT(&AO2, ZEROCONSTANT_OT);
                           assembleg_call_1(AO,
                             code_generate(parse_expression(QUANTITY_CONTEXT),
                               QUANTITY_CONTEXT, -1),
@@ -718,9 +714,9 @@ static void parse_print_g(int finally_return)
     if (count == 0) ebf_error("something to print", token_text);
     if (finally_return)
     {
-        AO.type = BYTECONSTANT_OT; AO.value = 0x0A; AO.marker = 0;
+        INITAOTV(&AO, BYTECONSTANT_OT, 0x0A);
         assembleg_1(streamchar_gc, AO); 
-        AO.type = BYTECONSTANT_OT; AO.value = 1; AO.marker = 0;
+        INITAOTV(&AO, BYTECONSTANT_OT, 1);
         assembleg_1(return_gc, AO); 
     }
 }
@@ -728,7 +724,7 @@ static void parse_print_g(int finally_return)
 static void parse_statement_z(int break_label, int continue_label)
 {   int ln, ln2, ln3, ln4, flag;
     assembly_operand AO, AO2, AO3, AO4;
-    dbgl spare_dbgl1, spare_dbgl2;
+    debug_location spare_debug_location1, spare_debug_location2;
 
     ASSERT_ZCODE();
 
@@ -769,6 +765,7 @@ static void parse_statement_z(int break_label, int continue_label)
             if ((token_type == SEP_TT) && (token_value == CLOSE_BRACE_SEP))
             {   put_token_back(); return;
             }
+            statement_debug_location = get_token_location();
             parse_statement(break_label, continue_label);
             return;
         }
@@ -814,8 +811,8 @@ static void parse_statement_z(int break_label, int continue_label)
 
         case BOX_CODE:
              if (version_number == 3)
-             warning("The 'box' statement has no effect in a version 3 game");
-                 AO3.type = LONG_CONSTANT_OT;
+                 warning("The 'box' statement has no effect in a version 3 game");
+             INITAOT(&AO3, LONG_CONSTANT_OT);
                  AO3.value = begin_table_array();
                  AO3.marker = ARRAY_MV;
                  ln = 0; ln2 = 0;
@@ -851,8 +848,8 @@ static void parse_statement_z(int break_label, int continue_label)
 
                  if (version_number == 3) return;
 
-                 AO2.type = SHORT_CONSTANT_OT; AO2.value = ln2; AO2.marker = 0;
-                 AO4.type = VARIABLE_OT; AO4.value = 255; AO4.marker = 0;
+                 INITAOTV(&AO2, SHORT_CONSTANT_OT, ln2);
+                 INITAOTV(&AO4, VARIABLE_OT, 255);
                  assemblez_3_to(call_vs_zc, veneer_routine(Box__Routine_VR),
                      AO2, AO3, AO4);
                  return;
@@ -921,7 +918,7 @@ static void parse_statement_z(int break_label, int continue_label)
                  if (version_number >= 5)
                  {   /* Use the V5 @set_font opcode, setting font 4
                         (for font off) or 1 (for font on). */
-                     AO.type = SHORT_CONSTANT_OT; AO.marker = 0;
+                     INITAOT(&AO, SHORT_CONSTANT_OT);
                      if (token_value == ON_MK)
                          AO.value = 1;
                      else
@@ -931,27 +928,17 @@ static void parse_statement_z(int break_label, int continue_label)
                  }
 
                  /* Set the fixed-pitch header bit. */
-                 AO.type = SHORT_CONSTANT_OT;
-                 AO.value = 0;
-                 AO.marker = 0;
-                 AO2.type = SHORT_CONSTANT_OT;
-                 AO2.value = 8;
-                 AO2.marker = 0;
-                 AO3.type = VARIABLE_OT;
-                 AO3.value = 255;
-                 AO3.marker = 0;
+                 INITAOTV(&AO, SHORT_CONSTANT_OT, 0);
+                 INITAOTV(&AO2, SHORT_CONSTANT_OT, 8);
+                 INITAOTV(&AO3, VARIABLE_OT, 255);
                  assemblez_2_to(loadw_zc, AO, AO2, AO3);
 
                  if (token_value == ON_MK)
-                 {   AO4.type = LONG_CONSTANT_OT;
-                     AO4.value = 0xfffd;
-                     AO4.marker = 0;
+                 {   INITAOTV(&AO4, LONG_CONSTANT_OT, 0xfffd);
                      assemblez_2_to(and_zc, AO4, AO3, AO3);
                  }
                  else
-                 {   AO4.type = SHORT_CONSTANT_OT;
-                     AO4.value = 2;
-                     AO4.marker = 0;
+                 {   INITAOTV(&AO4, SHORT_CONSTANT_OT, 2);
                      assemblez_2_to(or_zc, AO4, AO3, AO3);
                  }
 
@@ -979,7 +966,7 @@ static void parse_statement_z(int break_label, int continue_label)
                  {   put_token_back();
                      if (!((token_type==SEP_TT)&&(token_value==SUPERCLASS_SEP)))
                      {   sequence_point_follows = TRUE;
-                         debug_line_ref = token_line_ref;
+                         statement_debug_location = get_token_location();
                          code_generate(parse_expression(FORINIT_CONTEXT),
                              VOID_CONTEXT, -1);
                      }
@@ -1007,7 +994,7 @@ static void parse_statement_z(int break_label, int continue_label)
                  AO.type = OMITTED_OT;
                  if (!((token_type==SEP_TT)&&(token_value==COLON_SEP)))
                  {   put_token_back();
-                     spare_dbgl1 = token_line_ref;
+                     spare_debug_location1 = get_token_location();
                      AO = parse_expression(CONDITION_CONTEXT);
                      if (!match_colon()) break;
                  }
@@ -1017,7 +1004,7 @@ static void parse_statement_z(int break_label, int continue_label)
                  AO2.type = OMITTED_OT; flag = 0;
                  if (!((token_type==SEP_TT)&&(token_value==CLOSEB_SEP)))
                  {   put_token_back();
-                     spare_dbgl2 = token_line_ref;
+                     spare_debug_location2 = get_token_location();
                      AO2 = parse_expression(VOID_CONTEXT);
                      match_close_bracket();
                      flag = test_for_incdec(AO2);
@@ -1036,7 +1023,7 @@ static void parse_statement_z(int break_label, int continue_label)
 
                      if (AO.type != OMITTED_OT)
                      {   sequence_point_follows = TRUE;
-                         debug_line_ref = spare_dbgl1;
+                         statement_debug_location = spare_debug_location1;
                          code_generate(AO, CONDITION_CONTEXT, ln3);
                      }
 
@@ -1053,7 +1040,7 @@ static void parse_statement_z(int break_label, int continue_label)
 
                      assemble_label_no(ln);
                      sequence_point_follows = TRUE;
-                     debug_line_ref = spare_dbgl2;
+                     statement_debug_location = spare_debug_location2;
                      code_generate(AO2, VOID_CONTEXT, -1);
 
                      assemble_label_no(ln2);
@@ -1062,7 +1049,7 @@ static void parse_statement_z(int break_label, int continue_label)
 
                      if (AO.type != OMITTED_OT)
                      {   sequence_point_follows = TRUE;
-                         debug_line_ref = spare_dbgl1;
+                         statement_debug_location = spare_debug_location1;
                          code_generate(AO, CONDITION_CONTEXT, ln3);
                      }
                  }
@@ -1076,23 +1063,19 @@ static void parse_statement_z(int break_label, int continue_label)
                      assemble_label_no(ln2);
 
                      sequence_point_follows = TRUE;
-                     debug_line_ref = spare_dbgl2;
+                     statement_debug_location = spare_debug_location2;
                      if (flag > 0)
-                     {   AO3.type = SHORT_CONSTANT_OT;
-                         AO3.value = flag;
+                     {   INITAOTV(&AO3, SHORT_CONSTANT_OT, flag);
                          if (module_switch
                              && (flag>=MAX_LOCAL_VARIABLES) && (flag<LOWEST_SYSTEM_VAR_NUMBER))
                              AO3.marker = VARIABLE_MV;
-                         else AO3.marker = 0;
                          assemblez_1(inc_zc, AO3);
                      }
                      else
-                     {   AO3.type = SHORT_CONSTANT_OT;
-                         AO3.value = -flag;
+                     {   INITAOTV(&AO3, SHORT_CONSTANT_OT, -flag);
                          if ((module_switch) && (flag>=MAX_LOCAL_VARIABLES)
                              && (flag<LOWEST_SYSTEM_VAR_NUMBER))
                              AO3.marker = VARIABLE_MV;
-                         else AO3.marker = 0;
                          assemblez_1(dec_zc, AO3);
                      }
                      assemblez_jump(ln);
@@ -1120,9 +1103,7 @@ static void parse_statement_z(int break_label, int continue_label)
                  AO = code_generate(parse_expression(QUANTITY_CONTEXT),
                           QUANTITY_CONTEXT, -1);
                  if ((AO.type == VARIABLE_OT) && (AO.value == 0))
-                 {   AO.value = 252;
-                     AO.marker = 0;
-                     AO.type = SHORT_CONSTANT_OT;
+                 {   INITAOTV(&AO, SHORT_CONSTANT_OT, 252);
                      if (version_number != 6) assemblez_1(pull_zc, AO);
                      else assemblez_0_to(pull_zc, AO);
                      AO.type = VARIABLE_OT;
@@ -1165,6 +1146,7 @@ static void parse_statement_z(int break_label, int continue_label)
 
         case IF_CODE:
                  flag = FALSE;
+                 ln2 = 0;
 
                  match_open_bracket();
                  AO = parse_expression(CONDITION_CONTEXT);
@@ -1222,12 +1204,8 @@ static void parse_statement_z(int break_label, int continue_label)
     /*  -------------------------------------------------------------------- */
 
         case INVERSION_CODE:
-                 AO.marker = 0;
-                 AO.type   = SHORT_CONSTANT_OT;
-                 AO.value  = 0;
-
-                 AO2.marker = 0;
-                 AO2.type   = SHORT_CONSTANT_OT;
+                 INITAOTV(&AO, SHORT_CONSTANT_OT, 0);
+                 INITAOT(&AO2, SHORT_CONSTANT_OT);
 
                  AO2.value  = 60;
                  assemblez_2_to(loadb_zc, AO, AO2, temp_var1);
@@ -1298,6 +1276,7 @@ static void parse_statement_z(int break_label, int continue_label)
 
                  match_open_bracket();
                  get_next_token();
+                 INITAOT(&AO, VARIABLE_OT);
                  if (token_type == LOCAL_VARIABLE_TT)
                      AO.value = token_value;
                  else
@@ -1308,11 +1287,9 @@ static void parse_statement_z(int break_label, int continue_label)
                  {   ebf_error("'objectloop' variable", token_text);
                      panic_mode_error_recovery(); break;
                  }
-                 AO.type = VARIABLE_OT;
                  if ((module_switch) && (AO.value >= MAX_LOCAL_VARIABLES)
                      && (AO.value < LOWEST_SYSTEM_VAR_NUMBER))
                      AO.marker = VARIABLE_MV;
-                 else AO.marker = 0;
                  misc_keywords.enabled = TRUE;
                  get_next_token(); flag = TRUE;
                  misc_keywords.enabled = FALSE;
@@ -1340,13 +1317,14 @@ static void parse_statement_z(int break_label, int continue_label)
                          the new way, and there may be existing Inform code
                          relying on this.                                    */
                      assembly_operand AO4;
+                     INITAO(&AO4);
 
                      sequence_point_follows = TRUE;
                      AO2 = code_generate(parse_expression(QUANTITY_CONTEXT),
                          QUANTITY_CONTEXT, -1);
                      match_close_bracket();
                      if (ln == 1)
-                     {   AO3.type = VARIABLE_OT; AO3.value = 0; AO3.marker = 0;
+                     {   INITAOTV(&AO3, VARIABLE_OT, 0);
                          if (runtime_error_checking_switch)
                                  AO2 = check_nonzero_at_runtime(AO2, -1,
                                      OBJECTLOOP_RTE);
@@ -1355,7 +1333,7 @@ static void parse_statement_z(int break_label, int continue_label)
                          AO2 = AO3;
                      }
                      if (ln == 3)
-                     {   AO3.type = VARIABLE_OT; AO3.value = 0; AO3.marker = 0;
+                     {   INITAOTV(&AO3, VARIABLE_OT, 0);
                          if (runtime_error_checking_switch)
                          {   AO4 = AO2;
                              AO2 = check_nonzero_at_runtime(AO2, -1,
@@ -1378,9 +1356,7 @@ static void parse_statement_z(int break_label, int continue_label)
                              && ((AO4.type != VARIABLE_OT)
                                  ||(AO4.value != AO.value)))
                          {   assembly_operand en_ao;
-                             en_ao.value = OBJECTLOOP_BROKEN_RTE;
-                             en_ao.marker = 0;
-                             en_ao.type = SHORT_CONSTANT_OT;
+                             INITAOTV(&en_ao, SHORT_CONSTANT_OT, OBJECTLOOP_BROKEN_RTE);
                              assemblez_2_branch(jin_zc, AO, AO4,
                                  next_label, TRUE);
                              assemblez_3(call_vn_zc, veneer_routine(RT__Err_VR),
@@ -1396,7 +1372,7 @@ static void parse_statement_z(int break_label, int continue_label)
                  }
 
                  sequence_point_follows = TRUE;
-                 AO2.type = SHORT_CONSTANT_OT; AO2.value = 1; AO2.marker = 0;
+                 INITAOTV(&AO2, SHORT_CONSTANT_OT, 1);
                  assemblez_store(AO, AO2);
 
                  assemble_label_no(ln = next_label++);
@@ -1415,7 +1391,7 @@ static void parse_statement_z(int break_label, int continue_label)
                  sequence_point_follows = FALSE;
                  assemble_label_no(ln3);
                  assemblez_inc(AO);
-                 AO2.type = LONG_CONSTANT_OT; AO2.value = no_objects;
+                 INITAOTV(&AO2, LONG_CONSTANT_OT, no_objects);
                  AO2.marker = NO_OBJS_MV;
                  assemblez_2_branch(jg_zc, AO, AO2, ln2, TRUE);
                  assemblez_jump(ln);
@@ -1444,13 +1420,13 @@ static void parse_statement_z(int break_label, int continue_label)
     /*  -------------------------------------------------------------------- */
 
         case READ_CODE:
-                 AO.type = VARIABLE_OT; AO.value = 252; AO.marker = 0;
+                 INITAOTV(&AO, VARIABLE_OT, 252);
                  assemblez_store(AO,
                      code_generate(parse_expression(QUANTITY_CONTEXT),
                                    QUANTITY_CONTEXT, -1));
                  if (version_number > 3)
-                 {   AO3.type = SHORT_CONSTANT_OT; AO3.value = 1;AO3.marker = 0;
-                     AO4.type = SHORT_CONSTANT_OT; AO4.value = 0;AO4.marker = 0;
+                 {   INITAOTV(&AO3, SHORT_CONSTANT_OT, 1);
+                     INITAOTV(&AO4, SHORT_CONSTANT_OT, 0);
                      assemblez_3(storeb_zc, AO, AO3, AO4);
                  }
                  AO2 = code_generate(parse_expression(QUANTITY_CONTEXT),
@@ -1465,6 +1441,10 @@ static void parse_statement_z(int break_label, int continue_label)
 "In Version 3 no status-line drawing routine can be given");
                      else
                      {   assembly_operand AO5;
+                         /* Move the temp4 (buffer) value to the stack,
+                            since the routine might alter temp4. */
+                         assemblez_store(stack_pointer, AO);
+                         AO = stack_pointer;
                          put_token_back();
                          AO5 = parse_expression(CONSTANT_CONTEXT);
 
@@ -1509,8 +1489,7 @@ static void parse_statement_z(int break_label, int continue_label)
                  if (version_number < 5)
                      assemblez_0_branch(restore_zc, parse_label(), TRUE);
                  else
-                 {   AO2.type = SHORT_CONSTANT_OT; AO2.value = 2;
-                     AO2.marker = 0;
+                 {   INITAOTV(&AO2, SHORT_CONSTANT_OT, 2);
                      assemblez_0_to(restore_zc, temp_var1);
                      assemblez_2_branch(je_zc, temp_var1, AO2, parse_label(), TRUE);
                  }
@@ -1558,7 +1537,7 @@ static void parse_statement_z(int break_label, int continue_label)
                  if (version_number < 5)
                      assemblez_0_branch(save_zc, parse_label(), TRUE);
                  else
-                 {   AO.type = VARIABLE_OT; AO.value = 255; AO.marker = 0;
+                 {   INITAOTV(&AO, VARIABLE_OT, 255);
                      assemblez_0_to(save_zc, AO);
                      assemblez_1_branch(jz_zc, AO, parse_label(), FALSE);
                  }
@@ -1571,12 +1550,12 @@ static void parse_statement_z(int break_label, int continue_label)
         case SPACES_CODE:
                  AO = code_generate(parse_expression(QUANTITY_CONTEXT),
                      QUANTITY_CONTEXT, -1);
-                 AO2.type = VARIABLE_OT; AO2.value = 255; AO2.marker = 0;
+                 INITAOTV(&AO2, VARIABLE_OT, 255);
 
                  assemblez_store(AO2, AO);
 
-                 AO.type = SHORT_CONSTANT_OT; AO.value = 32; AO.marker = 0;
-                 AO3.type = SHORT_CONSTANT_OT; AO3.value = 1; AO3.marker = 0;
+                 INITAOTV(&AO, SHORT_CONSTANT_OT, 32);
+                 INITAOTV(&AO3, SHORT_CONSTANT_OT, 1);
 
                  assemblez_2_branch(jl_zc, AO2, AO3, ln = next_label++, TRUE);
                  assemble_label_no(ln2 = next_label++);
@@ -1591,17 +1570,16 @@ static void parse_statement_z(int break_label, int continue_label)
     /*  -------------------------------------------------------------------- */
 
         case STRING_CODE:
-                 AO.type = SHORT_CONSTANT_OT; AO.value = 0; AO.marker = 0;
-                 AO2.type = SHORT_CONSTANT_OT; AO2.value = 12; AO2.marker = 0;
-                 AO3.type = VARIABLE_OT; AO3.value = 252; AO3.marker = 0;
+                 INITAOTV(&AO, SHORT_CONSTANT_OT, 0);
+                 INITAOTV(&AO2, SHORT_CONSTANT_OT, 12);
+                 INITAOTV(&AO3, VARIABLE_OT, 252);
                  assemblez_2_to(loadw_zc, AO, AO2, AO3);
                  AO2 = code_generate(parse_expression(QUANTITY_CONTEXT),
                      QUANTITY_CONTEXT, -1);
                  get_next_token();
                  if (token_type == DQ_TT)
-                 {   AO4.value = compile_string(token_text, TRUE, TRUE);
-                     AO4.marker = 0;
-                     AO4.type = LONG_CONSTANT_OT;
+                 {   INITAOT(&AO4, LONG_CONSTANT_OT);
+                     AO4.value = compile_string(token_text, TRUE, TRUE);
                  }
                  else
                  {   put_token_back();
@@ -1638,7 +1616,7 @@ static void parse_statement_z(int break_label, int continue_label)
                      break;
                  }
 
-                 AO.type = SHORT_CONSTANT_OT; AO.marker = 0;
+                 INITAOT(&AO, SHORT_CONSTANT_OT);
                  switch(token_value)
                  {   case ROMAN_MK: AO.value = 0; break;
                      case REVERSE_MK: AO.value = 1; break;
@@ -1658,7 +1636,7 @@ static void parse_statement_z(int break_label, int continue_label)
                      QUANTITY_CONTEXT, -1);
                  match_close_bracket();
 
-                 AO2.type = VARIABLE_OT; AO2.value = 255; AO2.marker =  0;
+                 INITAOTV(&AO2, VARIABLE_OT, 255);
                  assemblez_store(AO2, AO);
 
                  parse_code_block(ln = next_label++, continue_label, 1);
@@ -1706,7 +1684,7 @@ static void parse_statement_z(int break_label, int continue_label)
 static void parse_statement_g(int break_label, int continue_label)
 {   int ln, ln2, ln3, ln4, flag, onstack;
     assembly_operand AO, AO2, AO3, AO4;
-    dbgl spare_dbgl1, spare_dbgl2;
+    debug_location spare_debug_location1, spare_debug_location2;
 
     ASSERT_GLULX();
 
@@ -1747,6 +1725,9 @@ static void parse_statement_g(int break_label, int continue_label)
             if ((token_type == SEP_TT) && (token_value == CLOSE_BRACE_SEP))
             {   put_token_back(); return;
             }
+            /* The following line prevents labels from influencing the positions
+               of sequence points. */
+            statement_debug_location = get_token_location();
             parse_statement(break_label, continue_label);
             return;
         }
@@ -1792,7 +1773,7 @@ static void parse_statement_g(int break_label, int continue_label)
     /*  -------------------------------------------------------------------- */
 
         case BOX_CODE:
-                 AO3.type = CONSTANT_OT;
+            INITAOT(&AO3, CONSTANT_OT);
                  AO3.value = begin_table_array();
                  AO3.marker = ARRAY_MV;
                  ln = 0; ln2 = 0;
@@ -1826,7 +1807,8 @@ static void parse_statement_g(int break_label, int continue_label)
                  if (ln == 0)
                      error("No lines of text given for 'box' display");
 
-                 AO2.value = ln2; AO2.marker = 0; set_constant_ot(&AO2);
+                 INITAO(&AO2);
+                 AO2.value = ln2; set_constant_ot(&AO2);
                  assembleg_call_2(veneer_routine(Box__Routine_VR),
                      AO2, AO3, zero_operand);
                  return;
@@ -1893,8 +1875,8 @@ static void parse_statement_g(int break_label, int continue_label)
                  }
 
                  /* Call glk_set_style(normal or preformatted) */
+                 INITAO(&AO);
                  AO.value = 0x0086;
-                 AO.marker = 0;
                  set_constant_ot(&AO);
                  if (token_value == ON_MK)
                    AO2 = zero_operand;
@@ -1925,7 +1907,7 @@ static void parse_statement_g(int break_label, int continue_label)
                  {   put_token_back();
                      if (!((token_type==SEP_TT)&&(token_value==SUPERCLASS_SEP)))
                      {   sequence_point_follows = TRUE;
-                         debug_line_ref = token_line_ref;
+                         statement_debug_location = get_token_location();
                          code_generate(parse_expression(FORINIT_CONTEXT),
                              VOID_CONTEXT, -1);
                      }
@@ -1953,7 +1935,7 @@ static void parse_statement_g(int break_label, int continue_label)
                  AO.type = OMITTED_OT;
                  if (!((token_type==SEP_TT)&&(token_value==COLON_SEP)))
                  {   put_token_back();
-                     spare_dbgl1 = token_line_ref;
+                     spare_debug_location1 = get_token_location();
                      AO = parse_expression(CONDITION_CONTEXT);
                      if (!match_colon()) break;
                  }
@@ -1963,7 +1945,7 @@ static void parse_statement_g(int break_label, int continue_label)
                  AO2.type = OMITTED_OT; flag = 0;
                  if (!((token_type==SEP_TT)&&(token_value==CLOSEB_SEP)))
                  {   put_token_back();
-                     spare_dbgl2 = token_line_ref;
+                     spare_debug_location2 = get_token_location();
                      AO2 = parse_expression(VOID_CONTEXT);
                      match_close_bracket();
                      flag = test_for_incdec(AO2);
@@ -1982,7 +1964,7 @@ static void parse_statement_g(int break_label, int continue_label)
 
                      if (AO.type != OMITTED_OT)
                      {   sequence_point_follows = TRUE;
-                         debug_line_ref = spare_dbgl1;
+                         statement_debug_location = spare_debug_location1;
                          code_generate(AO, CONDITION_CONTEXT, ln3);
                      }
 
@@ -1999,7 +1981,7 @@ static void parse_statement_g(int break_label, int continue_label)
 
                      assemble_label_no(ln);
                      sequence_point_follows = TRUE;
-                     debug_line_ref = spare_dbgl2;
+                     statement_debug_location = spare_debug_location2;
                      code_generate(AO2, VOID_CONTEXT, -1);
 
                      assemble_label_no(ln2);
@@ -2008,7 +1990,7 @@ static void parse_statement_g(int break_label, int continue_label)
 
                      if (AO.type != OMITTED_OT)
                      {   sequence_point_follows = TRUE;
-                         debug_line_ref = spare_dbgl1;
+                         statement_debug_location = spare_debug_location1;
                          code_generate(AO, CONDITION_CONTEXT, ln3);
                      }
                  }
@@ -2022,23 +2004,23 @@ static void parse_statement_g(int break_label, int continue_label)
                      assemble_label_no(ln2);
 
                      sequence_point_follows = TRUE;
-                     debug_line_ref = spare_dbgl2;
+                     statement_debug_location = spare_debug_location2;
                      if (flag > 0)
-                     {   AO3.value = flag;
+                     {   INITAO(&AO3);
+                         AO3.value = flag;
                          if (AO3.value >= MAX_LOCAL_VARIABLES)
                            AO3.type = GLOBALVAR_OT;
                          else
                            AO3.type = LOCALVAR_OT;
-                         AO3.marker = 0;
                          assembleg_3(add_gc, AO3, one_operand, AO3);
                      }
                      else
-                     {   AO3.value = -flag;
+                     {   INITAO(&AO3);
+                         AO3.value = -flag;
                          if (AO3.value >= MAX_LOCAL_VARIABLES)
                            AO3.type = GLOBALVAR_OT;
                          else
                            AO3.type = LOCALVAR_OT;
-                         AO3.marker = 0;
                          assembleg_3(sub_gc, AO3, one_operand, AO3);
                      }
                      assembleg_jump(ln);
@@ -2112,9 +2094,7 @@ static void parse_statement_g(int break_label, int continue_label)
                            set_constant_ot(&AO2);
                          }
                          else {
-                           AO3.value = 8;
-                           AO3.marker = 0;
-                           AO3.type = BYTECONSTANT_OT;
+                           INITAOTV(&AO3, BYTECONSTANT_OT, 8);
                            assembleg_3(add_gc, AO2, AO3, stack_pointer);
                            AO2 = stack_pointer;
                          }
@@ -2140,6 +2120,7 @@ static void parse_statement_g(int break_label, int continue_label)
 
         case IF_CODE:
                  flag = FALSE;
+                 ln2 = 0;
 
                  match_open_bracket();
                  AO = parse_expression(CONDITION_CONTEXT);
@@ -2197,9 +2178,7 @@ static void parse_statement_g(int break_label, int continue_label)
     /*  -------------------------------------------------------------------- */
 
         case INVERSION_CODE:
-                 AO2.marker = 0;
-                 AO2.type   = DEREFERENCE_OT;
-                 AO2.value  = GLULX_HEADER_SIZE+8; 
+                 INITAOTV(&AO2, DEREFERENCE_OT, GLULX_HEADER_SIZE+8);
                  assembleg_2(copyb_gc, AO2, stack_pointer);
                  assembleg_1(streamchar_gc, stack_pointer);
                  AO2.value  = GLULX_HEADER_SIZE+9; 
@@ -2212,8 +2191,8 @@ static void parse_statement_g(int break_label, int continue_label)
                  assembleg_2(copyb_gc, AO2, stack_pointer);
                  assembleg_1(streamchar_gc, stack_pointer);
 
-                 if (0) {
-                     AO.marker = 0;
+                 if (/* DISABLES CODE */ (0)) {
+                     INITAO(&AO);
                      AO.value = '(';
                      set_constant_ot(&AO);
                      assembleg_1(streamchar_gc, AO);
@@ -2283,7 +2262,7 @@ static void parse_statement_g(int break_label, int continue_label)
     /*  -------------------------------------------------------------------- */
 
         case NEW_LINE_CODE:  
-              AO.type = BYTECONSTANT_OT; AO.value = 0x0A; AO.marker = 0;
+              INITAOTV(&AO, BYTECONSTANT_OT, 0x0A);
               assembleg_1(streamchar_gc, AO); 
               break;
 
@@ -2296,15 +2275,11 @@ static void parse_statement_g(int break_label, int continue_label)
                  match_open_bracket();
                  get_next_token();
                  if (token_type == LOCAL_VARIABLE_TT) {
-                     AO.value = token_value;
-                     AO.type = LOCALVAR_OT;
-                     AO.marker = 0;
+                     INITAOTV(&AO, LOCALVAR_OT, token_value);
                  }
                  else if ((token_type == SYMBOL_TT) &&
                    (stypes[token_value] == GLOBAL_VARIABLE_T)) {
-                     AO.value = svals[token_value];  
-                     AO.type = GLOBALVAR_OT;
-                     AO.marker = 0;
+                     INITAOTV(&AO, GLOBALVAR_OT, svals[token_value]);
                  }
                  else {
                      ebf_error("'objectloop' variable", token_text);
@@ -2338,6 +2313,7 @@ static void parse_statement_g(int break_label, int continue_label)
                        the new way, and there may be existing Inform code
                        relying on this.                                    */
                      assembly_operand AO4, AO5;
+                     INITAO(&AO5);
 
                      sequence_point_follows = TRUE;
                      AO2 = code_generate(parse_expression(QUANTITY_CONTEXT),
@@ -2347,13 +2323,9 @@ static void parse_statement_g(int break_label, int continue_label)
                          if (runtime_error_checking_switch)
                              AO2 = check_nonzero_at_runtime(AO2, -1,
                                  OBJECTLOOP_RTE);
-                         AO4.type = BYTECONSTANT_OT;
-                         AO4.value = 5; /* parent */
-                         AO4.marker = 0;
+                         INITAOTV(&AO4, BYTECONSTANT_OT, GOBJFIELD_PARENT());
                          assembleg_3(aload_gc, AO2, AO4, stack_pointer);
-                         AO4.type = BYTECONSTANT_OT;
-                         AO4.value = 7; /* child */
-                         AO4.marker = 0;
+                         INITAOTV(&AO4, BYTECONSTANT_OT, GOBJFIELD_CHILD());
                          assembleg_3(aload_gc, stack_pointer, AO4, stack_pointer);
                          AO2 = stack_pointer;
                      }
@@ -2363,9 +2335,7 @@ static void parse_statement_g(int break_label, int continue_label)
                              AO2 = check_nonzero_at_runtime(AO2, -1,
                                  CHILD_RTE);
                          }
-                         AO4.type = BYTECONSTANT_OT;
-                         AO4.value = 7; /* child */
-                         AO4.marker = 0;
+                         INITAOTV(&AO4, BYTECONSTANT_OT, GOBJFIELD_CHILD());
                          assembleg_3(aload_gc, AO2, AO4, stack_pointer);
                          AO2 = stack_pointer;
                      }
@@ -2385,12 +2355,10 @@ static void parse_statement_g(int break_label, int continue_label)
                              && ((AO5.type != LOCALVAR_OT)||(AO5.value != 0))
                              && ((AO5.type != LOCALVAR_OT)||(AO5.value != AO.value)))
                          {   assembly_operand en_ao;
+                             INITAO(&en_ao);
                              en_ao.value = OBJECTLOOP_BROKEN_RTE;
-                             en_ao.marker = 0;
                              set_constant_ot(&en_ao);
-                             AO4.type = BYTECONSTANT_OT;
-                             AO4.value = 5; /* parent */
-                             AO4.marker = 0;
+                             INITAOTV(&AO4, BYTECONSTANT_OT, GOBJFIELD_PARENT());
                              assembleg_3(aload_gc, AO, AO4, stack_pointer);
                              assembleg_2_branch(jeq_gc, stack_pointer, AO5, 
                                  next_label);
@@ -2403,9 +2371,7 @@ static void parse_statement_g(int break_label, int continue_label)
                      else {
                          AO2 = AO;
                      }
-                     AO4.type = BYTECONSTANT_OT;
-                     AO4.value = 6; /* sibling */
-                     AO4.marker = 0;
+                     INITAOTV(&AO4, BYTECONSTANT_OT, GOBJFIELD_SIBLING());
                      assembleg_3(aload_gc, AO2, AO4, AO);
                      assembleg_1_branch(jnz_gc, AO, ln4);
                      assemble_label_no(ln2);
@@ -2414,9 +2380,9 @@ static void parse_statement_g(int break_label, int continue_label)
 
                  sequence_point_follows = TRUE;
                  ln = symbol_index("Class", -1);
+                 INITAOT(&AO2, CONSTANT_OT);
                  AO2.value = svals[ln];
                  AO2.marker = OBJECT_MV;
-                 AO2.type = CONSTANT_OT;
                  assembleg_store(AO, AO2);
 
                  assemble_label_no(ln = next_label++);
@@ -2434,7 +2400,8 @@ static void parse_statement_g(int break_label, int continue_label)
 
                  sequence_point_follows = FALSE;
                  assemble_label_no(ln3);
-                 assembleg_3(aload_gc, AO, two_operand, AO);
+                 INITAOTV(&AO4, BYTECONSTANT_OT, GOBJFIELD_CHAIN());
+                 assembleg_3(aload_gc, AO, AO4, AO);
                  assembleg_1_branch(jnz_gc, AO, ln);
                  assemble_label_no(ln2);
                  return;
@@ -2479,8 +2446,7 @@ static void parse_statement_g(int break_label, int continue_label)
         case RETURN_CODE:
           get_next_token();
           if ((token_type == SEP_TT) && (token_value == SEMICOLON_SEP)) {
-            AO.type = BYTECONSTANT_OT; AO.value = 1; AO.marker = 0;
-            assembleg_1(return_gc, AO); 
+            assembleg_1(return_gc, one_operand); 
             return; 
           }
           put_token_back();
@@ -2515,7 +2481,8 @@ static void parse_statement_g(int break_label, int continue_label)
 
                  assembleg_store(temp_var1, AO);
 
-                 AO.value = 32; AO.marker = 0; set_constant_ot(&AO);
+                 INITAO(&AO);
+                 AO.value = 32; set_constant_ot(&AO);
 
                  assembleg_2_branch(jlt_gc, temp_var1, one_operand, 
                      ln = next_label++);
@@ -2535,9 +2502,9 @@ static void parse_statement_g(int break_label, int continue_label)
                      QUANTITY_CONTEXT, -1);
                  get_next_token();
                  if (token_type == DQ_TT)
-                 {   AO4.value = compile_string(token_text, TRUE, TRUE);
+                 {   INITAOT(&AO4, CONSTANT_OT);
+                     AO4.value = compile_string(token_text, TRUE, TRUE);
                      AO4.marker = STRING_MV;
-                     AO4.type = CONSTANT_OT;
                  }
                  else
                  {   put_token_back();
@@ -2570,21 +2537,22 @@ static void parse_statement_g(int break_label, int continue_label)
 
                  /* Call glk_set_style() */
 
+                 INITAO(&AO);
                  AO.value = 0x0086;
-                 AO.marker = 0;
                  set_constant_ot(&AO);
                  switch(token_value)
-                 {   case ROMAN_MK: 
+                 {   case ROMAN_MK:
+                     default: 
                          AO2 = zero_operand; /* normal */
                          break;
                      case REVERSE_MK: 
+                         INITAO(&AO2);
                          AO2.value = 5; /* alert */
-                         AO2.marker = 0;
                          set_constant_ot(&AO2);
                          break;
                      case BOLD_MK: 
+                         INITAO(&AO2);
                          AO2.value = 4; /* subheader */
-                         AO2.marker = 0;
                          set_constant_ot(&AO2);
                          break;
                      case UNDERLINE_MK: 

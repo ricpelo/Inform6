@@ -1,8 +1,8 @@
 /* ------------------------------------------------------------------------- */
 /*   "lexer" : Lexical analyser                                              */
 /*                                                                           */
-/*   Part of Inform 6.32                                                     */
-/*   copyright (c) Graham Nelson 1993 - 2012                                 */
+/*   Part of Inform 6.34                                                     */
+/*   copyright (c) Graham Nelson 1993 - 2018                                 */
 /*                                                                           */
 /* ------------------------------------------------------------------------- */
 
@@ -44,11 +44,167 @@ int32 last_mapped_line;  /* Last syntax line reported to debugging file      */
 /*   number, and translated to the token:                                    */
 /*     type NUMBER_TT, value 483, text "$1e3"                                */
 /* ------------------------------------------------------------------------- */
-/*   These four variables are set to the current token on a call to          */
+/*   These three variables are set to the current token on a call to         */
 /*   get_next_token() (but are not changed by a call to put_token_back()).   */
 /* ------------------------------------------------------------------------- */
 
-int token_type;  int32 token_value;  char *token_text; dbgl token_line_ref;
+int token_type;
+int32 token_value;
+char *token_text;
+
+/* ------------------------------------------------------------------------- */
+/*   The next two variables are the head and tail of a singly linked list.   */
+/*   The tail stores the portion most recently read from the current         */
+/*   lexical block; its end values therefore describe the location of the    */
+/*   current token, and are updated whenever the three variables above are   */
+/*   via set_token_location(...).  Earlier vertices, if any, represent the   */
+/*   regions of lexical blocks read beforehand, where new vertices are       */
+/*   only introduced by interruptions like a file inclusion or an EOF.       */
+/*   Vertices are deleted off of the front of the list once they are no      */
+/*   longer referenced by pending debug information records.                 */
+/* ------------------------------------------------------------------------- */
+
+static debug_locations *first_token_locations;
+static debug_locations *last_token_location;
+
+extern debug_location get_token_location(void)
+{   debug_location result;
+    debug_location *location = &(last_token_location->location);
+    result.file_index = location->file_index;
+    result.beginning_byte_index = location->end_byte_index;
+    result.end_byte_index = location->end_byte_index;
+    result.beginning_line_number = location->end_line_number;
+    result.end_line_number = location->end_line_number;
+    result.beginning_character_number = location->end_character_number;
+    result.end_character_number = location->end_character_number;
+    result.orig_file_index = location->orig_file_index;
+    result.orig_beg_line_number = location->orig_beg_line_number;
+    result.orig_beg_char_number = location->orig_beg_char_number;
+    return result;
+}
+
+extern debug_locations get_token_locations(void)
+{   debug_locations result;
+    result.location = get_token_location();
+    result.next = NULL;
+    result.reference_count = 0;
+    return result;
+}
+
+static void set_token_location(debug_location location)
+{   if (location.file_index == last_token_location->location.file_index)
+    {   last_token_location->location.end_byte_index =
+            location.end_byte_index;
+        last_token_location->location.end_line_number =
+            location.end_line_number;
+        last_token_location->location.end_character_number =
+            location.end_character_number;
+        last_token_location->location.orig_file_index =
+            location.orig_file_index;
+        last_token_location->location.orig_beg_line_number =
+            location.orig_beg_line_number;
+        last_token_location->location.orig_beg_char_number =
+            location.orig_beg_char_number;
+    } else
+    {   debug_locations*successor =
+            my_malloc
+                (sizeof(debug_locations),
+                 "debug locations of recent tokens");
+        successor->location = location;
+        successor->next = NULL;
+        successor->reference_count = 0;
+        last_token_location->next = successor;
+        last_token_location = successor;
+    }
+}
+
+extern debug_location_beginning get_token_location_beginning(void)
+{   debug_location_beginning result;
+    ++(last_token_location->reference_count);
+    result.head = last_token_location;
+    result.beginning_byte_index =
+        last_token_location->location.end_byte_index;
+    result.beginning_line_number =
+        last_token_location->location.end_line_number;
+    result.beginning_character_number =
+        last_token_location->location.end_character_number;
+    result.orig_file_index = last_token_location->location.orig_file_index;
+    result.orig_beg_line_number = last_token_location->location.orig_beg_line_number;
+    result.orig_beg_char_number = last_token_location->location.orig_beg_char_number;
+
+    return result;
+}
+
+static void cleanup_token_locations(debug_location_beginning*beginning)
+{   if (first_token_locations)
+    {   while (first_token_locations &&
+               !first_token_locations->reference_count)
+        {   debug_locations*moribund = first_token_locations;
+            first_token_locations = moribund->next;
+            my_free(&moribund, "debug locations of recent tokens");
+            if (beginning &&
+                (beginning->head == moribund || !first_token_locations))
+            {   compiler_error
+                    ("Records needed by a debug_location_beginning are no "
+                     "longer allocated, perhaps because of an invalid reuse "
+                     "of this or an earlier beginning");
+            }
+        }
+    } else
+    {   if (beginning)
+        {   compiler_error
+                ("Attempt to use a debug_location_beginning when no token "
+                 "locations are defined");
+        } else
+        {   compiler_error
+                ("Attempt to clean up token locations when no token locations "
+                 "are defined");
+        }
+    }
+}
+
+extern void discard_token_location(debug_location_beginning beginning)
+{   --(beginning.head->reference_count);
+}
+
+extern debug_locations get_token_location_end
+    (debug_location_beginning beginning)
+{   debug_locations result;
+    cleanup_token_locations(&beginning);
+    --(beginning.head->reference_count);
+    /* Sometimes we know what we'll read before we switch to the lexical block
+       where we'll read it.  In such cases the beginning will be placed in the
+       prior block and last exactly zero bytes there.  It's misleading to
+       include such ranges, so we gobble them. */
+    if (beginning.head->location.end_byte_index ==
+          beginning.beginning_byte_index &&
+        beginning.head->next)
+    {   beginning.head = beginning.head->next;
+        result.location = beginning.head->location;
+        result.location.beginning_byte_index = 0;
+        result.location.beginning_line_number = 1;
+        result.location.beginning_character_number = 1;
+    } else
+    {   result.location = beginning.head->location;
+        result.location.beginning_byte_index =
+            beginning.beginning_byte_index;
+        result.location.beginning_line_number =
+            beginning.beginning_line_number;
+        result.location.beginning_character_number =
+            beginning.beginning_character_number;
+    }
+
+    result.location.orig_file_index =
+        beginning.orig_file_index;
+    result.location.orig_beg_line_number =
+        beginning.orig_beg_line_number;
+    result.location.orig_beg_char_number =
+        beginning.orig_beg_char_number;
+    
+    result.next = beginning.head->next;
+    result.reference_count = 0;
+    return result;
+}
 
 /* ------------------------------------------------------------------------- */
 /*   In order to be able to put tokens back efficiently, the lexer stores    */
@@ -99,6 +255,8 @@ static char *lex_p;                     /* Current write position            */
 /*   The lexer itself needs up to 3 characters of lookahead (it uses an      */
 /*   LR(3) grammar to translate characters into tokens).                     */
 /* ------------------------------------------------------------------------- */
+
+#define LOOKAHEAD_SIZE 3
 
 static int current, lookahead,          /* The latest character read, and    */
     lookahead2, lookahead3;             /* the three characters following it */
@@ -293,7 +451,7 @@ keyword_group directives =
     "default", "dictionary", "end", "endif", "extend", "fake_action",
     "global", "ifdef", "ifndef", "ifnot", "ifv3", "ifv5", "iftrue",
     "iffalse", "import", "include", "link", "lowstring", "message",
-    "nearby", "object", "property", "release", "replace",
+    "nearby", "object", "origsource", "property", "release", "replace",
     "serial", "switches", "statusline", "stub", "system_file", "trace",
     "undef", "verb", "version", "zcharacter",
     "" },
@@ -754,16 +912,20 @@ typedef struct LexicalBlock_s
     int   file_no;                               /*  Or 255 if not from a
                                                      file; used for debug
                                                      information             */
+    char *orig_source;                           /* From #origsource direct  */
+    int orig_file;
+    int32 orig_line;
+    int32 orig_char;
 } LexicalBlock;
 
 static LexicalBlock NoFileOpen =
-{   "<before compilation>", FALSE, FALSE, 0, 0, 0, 255 };
+    {   "<before compilation>",  FALSE, FALSE, 0, 0, 0, 255, NULL, 0, 0, 0 };
 
 static LexicalBlock MakingOutput =
-{   "<constructing output>", FALSE, FALSE, 0, 0, 0, 255 };
+    {   "<constructing output>", FALSE, FALSE, 0, 0, 0, 255, NULL, 0, 0, 0 };
 
 static LexicalBlock StringLB =
-{   "<veneer routine>", FALSE, TRUE, 0, 0, 0, 255 };
+    {   "<veneer routine>",      FALSE, TRUE,  0, 0, 0, 255, NULL, 0, 0, 0 };
 
 static LexicalBlock *CurrentLB;                  /*  The current lexical
                                                      block of input text     */
@@ -776,18 +938,46 @@ extern int is_systemfile(void)
 {   return ((CurrentLB->sys_flag)?1:0);
 }
 
-extern dbgl get_current_dbgl(void)
-{   dbgl X; int n;
-    X.b1 = CurrentLB->file_no;
-    X.b2 = (CurrentLB->source_line)/256;
-    X.b3 = (CurrentLB->source_line)%256;
-    n = CurrentLB->chars_read - CurrentLB->line_start;
-    if (n>255) n = 255;
-    X.cc = n;
-    return X;
+extern void set_origsource_location(char *source, int32 line, int32 charnum)
+{
+    if (!source) {
+        /* Clear the Origsource declaration. */
+        CurrentLB->orig_file = 0;
+        CurrentLB->orig_source = NULL;
+        CurrentLB->orig_line = 0;
+        CurrentLB->orig_char = 0;
+        return;
+    }
+
+    /* Get the file number for a new or existing InputFiles entry. */
+    int file_no = register_orig_sourcefile(source);
+
+    CurrentLB->orig_file = file_no;
+    CurrentLB->orig_source = InputFiles[file_no-1].filename;
+    CurrentLB->orig_line = line;
+    CurrentLB->orig_char = charnum;
 }
 
-static dbgl ErrorReport_dbgl;
+/* Error locations. */
+
+extern debug_location get_current_debug_location(void)
+{   debug_location result;
+    /* Assume that all input characters are one byte. */
+    result.file_index = CurrentLB->file_no;
+    result.beginning_byte_index = CurrentLB->chars_read - LOOKAHEAD_SIZE;
+    result.end_byte_index = result.beginning_byte_index;
+    result.beginning_line_number = CurrentLB->source_line;
+    result.end_line_number = result.beginning_line_number;
+    result.beginning_character_number =
+        CurrentLB->chars_read - CurrentLB->line_start;
+    result.end_character_number = result.beginning_character_number;
+    result.orig_file_index = CurrentLB->orig_file;
+    result.orig_beg_line_number = CurrentLB->orig_line;
+    result.orig_beg_char_number = CurrentLB->orig_char;
+    return result;
+}
+
+static debug_location ErrorReport_debug_location;
 
 extern void report_errors_at_current_line(void)
 {   ErrorReport.line_number = CurrentLB->source_line;
@@ -797,15 +987,44 @@ extern void report_errors_at_current_line(void)
     ErrorReport.source      = CurrentLB->filename;
     ErrorReport.main_flag   = CurrentLB->main_flag;
     if (debugfile_switch)
-        ErrorReport_dbgl = get_current_dbgl();
+        ErrorReport_debug_location = get_current_debug_location();
+    ErrorReport.orig_file = CurrentLB->orig_file;
+    ErrorReport.orig_source = CurrentLB->orig_source;
+    ErrorReport.orig_line = CurrentLB->orig_line;
+    ErrorReport.orig_char = CurrentLB->orig_char;
 }
 
-extern dbgl get_error_report_dbgl(void)
-{   return ErrorReport_dbgl;
+extern debug_location get_error_report_debug_location(void)
+{   return ErrorReport_debug_location;
 }
 
 extern int32 get_current_line_start(void)
 {   return CurrentLB->line_start;
+}
+
+brief_location blank_brief_location;
+
+extern brief_location get_brief_location(ErrorPosition *errpos)
+{
+    brief_location loc;
+    loc.file_index = errpos->file_number;
+    loc.line_number = errpos->line_number;
+    loc.orig_file_index = errpos->orig_file;
+    loc.orig_line_number = errpos->orig_line;
+    return loc;
+}
+
+extern void export_brief_location(brief_location loc, ErrorPosition *errpos)
+{
+    if (loc.file_index != -1)
+    {   errpos->file_number = loc.file_index;
+        errpos->line_number = loc.line_number;
+        errpos->main_flag = (errpos->file_number == 1);
+        errpos->orig_source = NULL;
+        errpos->orig_file = loc.orig_file_index;
+        errpos->orig_line = loc.orig_line_number;
+        errpos->orig_char = 0;
+    }
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1027,7 +1246,7 @@ static int File_sp;                              /*  Stack pointer           */
 
 static Sourcefile *CF;                           /*  Top entry on stack      */
 
-static int last_no_files;
+static int last_input_file;
 
 static void begin_buffering_file(int i, int file_no)
 {   int j, cnt; uchar *p;
@@ -1049,16 +1268,21 @@ static void begin_buffering_file(int i, int file_no)
     lookahead  = source_to_iso_grid[p[0]];
     lookahead2 = source_to_iso_grid[p[1]];
     lookahead3 = source_to_iso_grid[p[2]];
-    FileStack[i].read_pos = 3;
+    if (LOOKAHEAD_SIZE != 3)
+        compiler_error
+            ("Lexer lookahead size does not match hard-coded lookahead code");
+    FileStack[i].read_pos = LOOKAHEAD_SIZE;
 
     if (file_no==1) FileStack[i].LB.main_flag = TRUE;
                else FileStack[i].LB.main_flag = FALSE;
     FileStack[i].LB.sys_flag = FALSE;
     FileStack[i].LB.source_line = 1;
-    FileStack[i].LB.line_start = 0;
-    FileStack[i].LB.chars_read = 3;
+    FileStack[i].LB.line_start = LOOKAHEAD_SIZE;
+    FileStack[i].LB.chars_read = LOOKAHEAD_SIZE;
     FileStack[i].LB.filename = InputFiles[file_no-1].filename;
     FileStack[i].LB.file_no = file_no;
+    FileStack[i].LB.orig_source = NULL; FileStack[i].LB.orig_file = 0; 
+    FileStack[i].LB.orig_line = 0; FileStack[i].LB.orig_char = 0;
 
     CurrentLB = &(FileStack[i].LB);
     CF = &(FileStack[i]);
@@ -1078,20 +1302,29 @@ static void create_char_pipeline(void)
 {
     File_sp = 0;
     begin_buffering_file(File_sp++, 1);
-    pipeline_made = TRUE; last_no_files = input_file;
+    pipeline_made = TRUE;
+    last_input_file = current_input_file;
 }
 
 static int get_next_char_from_pipeline(void)
 {   uchar *p;
 
-    while (last_no_files < input_file)
+    while (last_input_file < current_input_file)
     {
         /*  An "Include" file must have opened since the last character
-            was read...                                                      */
+            was read. Perhaps more than one. We run forward through the
+            list and add them to the include stack. But we ignore
+            "Origsource" files (which were never actually opened for
+            reading). */
 
-        begin_buffering_file(File_sp++, ++last_no_files);
+        last_input_file++;
+        if (!InputFiles[last_input_file-1].is_input)
+            continue;
+
+        begin_buffering_file(File_sp++, last_input_file);
     }
-    last_no_files = input_file;
+    if (last_input_file != current_input_file)
+        compiler_error("last_input_file did not match after Include");
 
     if (File_sp == 0)
     {   lookahead  = 0; lookahead2 = 0; lookahead3 = 0; return 0;
@@ -1104,7 +1337,8 @@ static int get_next_char_from_pipeline(void)
     }
     else
     if (CF->read_pos == -(CF->size))
-    {   File_sp--;
+    {   set_token_location(get_current_debug_location());
+        File_sp--;
         if (File_sp == 0)
         {   lookahead  = 0; lookahead2 = 0; lookahead3 = 0; return 0;
         }
@@ -1116,6 +1350,7 @@ static int get_next_char_from_pipeline(void)
                 file_load_chars(CF->file_no, CF->buffer, SOURCE_BUFFER_SIZE);
             CF->read_pos = 0;
         }
+        set_token_location(get_current_debug_location());
     }
 
     p = (uchar *) (CF->buffer);
@@ -1193,6 +1428,7 @@ assumption inside Inform");
 
 extern void get_next_token(void)
 {   int d, i, j, k, quoted_size, e, radix, context; int32 n; char *r;
+    int returning_a_put_back_token = TRUE;
 
     context = lexical_context();
 
@@ -1207,6 +1443,7 @@ extern void get_next_token(void)
         }
         goto ReturnBack;
     }
+    returning_a_put_back_token = FALSE;
 
     if (circle_position == CIRCLE_SIZE-1) circle_position = 0;
     else circle_position++;
@@ -1229,7 +1466,7 @@ extern void get_next_token(void)
         }
     }
 
-    circle[circle_position].line_ref = get_current_dbgl();
+    circle[circle_position].location = get_current_debug_location();
 
     switch(e)
     {   case 0: char_error("Illegal character found in source:", d);
@@ -1406,6 +1643,9 @@ extern void get_next_token(void)
                     "Name exceeds the maximum length of %d characters:",
                          MAX_IDENTIFIER_LENGTH);
                 error_named(bad_length, circle[circle_position].text);
+                /* Trim token so that it doesn't violate
+                   MAX_IDENTIFIER_LENGTH during error recovery */
+                circle[circle_position].text[MAX_IDENTIFIER_LENGTH] = 0;
             }
 
             if (dont_enter_into_symbol_table)
@@ -1502,7 +1742,9 @@ extern void get_next_token(void)
     token_value = circle[i].value;
     token_type = circle[i].type;
     token_text = circle[i].text;
-    token_line_ref = circle[i].line_ref;
+    if (!returning_a_put_back_token)
+    {   set_token_location(circle[i].location);
+    }
     token_contexts[i] = context;
 
     if (tokens_trace_level > 0)
@@ -1562,6 +1804,10 @@ extern void restart_lexer(char *lexical_source, char *name)
 
 extern void init_lexer_vars(void)
 {
+    blank_brief_location.file_index = -1;
+    blank_brief_location.line_number = 0;
+    blank_brief_location.orig_file_index = 0;
+    blank_brief_location.orig_line_number = 0;
 }
 
 extern void lexer_begin_prepass(void)
@@ -1614,6 +1860,22 @@ extern void lexer_allocate_arrays(void)
 
     make_tokeniser_grid();
     make_keywords_tables();
+
+    first_token_locations =
+        my_malloc(sizeof(debug_locations), "debug locations of recent tokens");
+    first_token_locations->location.file_index = 0;
+    first_token_locations->location.beginning_byte_index = 0;
+    first_token_locations->location.end_byte_index = 0;
+    first_token_locations->location.beginning_line_number = 0;
+    first_token_locations->location.end_line_number = 0;
+    first_token_locations->location.beginning_character_number = 0;
+    first_token_locations->location.end_character_number = 0;
+    first_token_locations->location.orig_file_index = 0;
+    first_token_locations->location.orig_beg_line_number = 0;
+    first_token_locations->location.orig_beg_char_number = 0;
+    first_token_locations->next = NULL;
+    first_token_locations->reference_count = 0;
+    last_token_location = first_token_locations;
 }
 
 extern void lexer_free_arrays(void)
@@ -1634,6 +1896,8 @@ extern void lexer_free_arrays(void)
 
     my_free(&local_variable_hash_codes, "local variable hash codes");
     my_free(&local_variable_texts, "local variable text pointers");
+
+    cleanup_token_locations(NULL);
 }
 
 /* ========================================================================= */

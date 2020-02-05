@@ -2,8 +2,8 @@
 /*   "memory" : Memory management and ICL memory setting commands            */
 /*              (For "memoryerror", see "errors.c")                          */
 /*                                                                           */
-/*   Part of Inform 6.32                                                     */
-/*   copyright (c) Graham Nelson 1993 - 2012                                 */
+/*   Part of Inform 6.34                                                     */
+/*   copyright (c) Graham Nelson 1993 - 2018                                 */
 /*                                                                           */
 /* ------------------------------------------------------------------------- */
 
@@ -254,7 +254,10 @@ int MAX_GLOBAL_VARIABLES;
 int DICT_WORD_SIZE; /* number of characters in a dict word */
 int DICT_CHAR_SIZE; /* (glulx) 1 for one-byte chars, 4 for Unicode chars */
 int DICT_WORD_BYTES; /* DICT_WORD_SIZE*DICT_CHAR_SIZE */
+int ZCODE_HEADER_EXT_WORDS; /* (zcode 1.0) requested header extension size */
+int ZCODE_HEADER_FLAGS_3; /* (zcode 1.1) value to place in Flags 3 word */
 int NUM_ATTR_BYTES;
+int GLULX_OBJECT_EXT_BYTES; /* (glulx) extra bytes for each object record */
 int32 MAX_NUM_STATIC_STRINGS;
 int32 MAX_UNICODE_CHARS;
 int32 MAX_STACK_SIZE;
@@ -287,6 +290,7 @@ static void list_memory_sizes(void)
     printf("|  %25s = %-7d |\n","MAX_ACTIONS",MAX_ACTIONS);
     printf("|  %25s = %-7d |\n","MAX_ADJECTIVES",MAX_ADJECTIVES);
     printf("|  %25s = %-7d |\n","ALLOC_CHUNK_SIZE",ALLOC_CHUNK_SIZE);
+    printf("|  %25s = %-7d |\n","MAX_ARRAYS",MAX_ARRAYS);
     printf("|  %25s = %-7d |\n","NUM_ATTR_BYTES",NUM_ATTR_BYTES);
     printf("|  %25s = %-7d |\n","MAX_CLASSES",MAX_CLASSES);
     printf("|  %25s = %-7d |\n","MAX_DICT_ENTRIES",MAX_DICT_ENTRIES);
@@ -296,9 +300,13 @@ static void list_memory_sizes(void)
     printf("|  %25s = %-7d |\n","MAX_EXPRESSION_NODES",MAX_EXPRESSION_NODES);
     printf("|  %25s = %-7d |\n","MAX_GLOBAL_VARIABLES",MAX_GLOBAL_VARIABLES);
     printf("|  %25s = %-7d |\n","HASH_TAB_SIZE",HASH_TAB_SIZE);
+    if (!glulx_mode)
+      printf("|  %25s = %-7d |\n","ZCODE_HEADER_EXT_WORDS",ZCODE_HEADER_EXT_WORDS);
+    if (!glulx_mode)
+      printf("|  %25s = %-7d |\n","ZCODE_HEADER_FLAGS_3",ZCODE_HEADER_FLAGS_3);
     printf("|  %25s = %-7d |\n","MAX_INCLUSION_DEPTH",MAX_INCLUSION_DEPTH);
-    printf("|  %25s = %-7d |\n","MAX_INDIV_PROP_TABLE_SIZE",
-        MAX_INDIV_PROP_TABLE_SIZE);
+    printf("|  %25s = %-7d |\n","MAX_INDIV_PROP_TABLE_SIZE", MAX_INDIV_PROP_TABLE_SIZE);
+    printf("|  %25s = %-7d |\n","INDIV_PROP_START", INDIV_PROP_START);
     printf("|  %25s = %-7d |\n","MAX_LABELS",MAX_LABELS);
     printf("|  %25s = %-7d |\n","MAX_LINESPACE",MAX_LINESPACE);
     printf("|  %25s = %-7d |\n","MAX_LINK_DATA_SIZE",MAX_LINK_DATA_SIZE);
@@ -312,6 +320,9 @@ static void list_memory_sizes(void)
       printf("|  %25s = %-7d |\n","MAX_NUM_STATIC_STRINGS",
         MAX_NUM_STATIC_STRINGS);
     printf("|  %25s = %-7d |\n","MAX_OBJECTS",MAX_OBJECTS);
+    if (glulx_mode)
+      printf("|  %25s = %-7d |\n","GLULX_OBJECT_EXT_BYTES",
+        GLULX_OBJECT_EXT_BYTES);
     if (glulx_mode)
       printf("|  %25s = %-7d |\n","MAX_OBJ_PROP_COUNT",
         MAX_OBJ_PROP_COUNT);
@@ -506,13 +517,19 @@ extern void set_memory_sizes(int size_flag)
     DICT_WORD_SIZE_g = 9;
     NUM_ATTR_BYTES_z = 6;
     NUM_ATTR_BYTES_g = 7;
+    /* Backwards-compatible behavior: allow for a unicode table
+       whether we need one or not. The user can set this to zero if
+       there's no unicode table. */
+    ZCODE_HEADER_EXT_WORDS = 3;
+    ZCODE_HEADER_FLAGS_3 = 0;
+    GLULX_OBJECT_EXT_BYTES = 0;
     MAX_UNICODE_CHARS = 64;
     MEMORY_MAP_EXTENSION = 0;
     /* We estimate the default Glulx stack size at 4096. That's about
        enough for 90 nested function calls with 8 locals each -- the
        same capacity as the Z-Spec's suggestion for Z-machine stack
-       size. Note that Inform 7 wants more stack, so if you're
-       compiling an I7 game, crank this up. */
+       size. Note that Inform 7 wants more stack; I7-generated code
+       sets MAX_STACK_SIZE to 65536 by default. */
     MAX_STACK_SIZE = 4096;
     OMIT_UNUSED_ROUTINES = 0;
     WARN_UNUSED_ROUTINES = 0;
@@ -530,6 +547,7 @@ extern void adjust_memory_sizes()
     DICT_WORD_SIZE = DICT_WORD_SIZE_z;
     NUM_ATTR_BYTES = NUM_ATTR_BYTES_z;
     ALLOC_CHUNK_SIZE = ALLOC_CHUNK_SIZE_z;
+    INDIV_PROP_START = 64;
   }
   else {
     MAX_ZCODE_SIZE = MAX_ZCODE_SIZE_g;
@@ -539,6 +557,7 @@ extern void adjust_memory_sizes()
     DICT_WORD_SIZE = DICT_WORD_SIZE_g;
     NUM_ATTR_BYTES = NUM_ATTR_BYTES_g;
     ALLOC_CHUNK_SIZE = ALLOC_CHUNK_SIZE_g;
+    INDIV_PROP_START = 256;
   }
 }
 
@@ -615,6 +634,28 @@ static void explain_parameter(char *command)
   stores eight attributes. In Z-code this is always 6 (only 4 are used in \n\
   v3 games). In Glulx it can be any number which is a multiple of four, \n\
   plus three.\n");
+        return;
+    }
+    if (strcmp(command,"ZCODE_HEADER_EXT_WORDS")==0)
+    {   printf(
+"  ZCODE_HEADER_EXT_WORDS is the number of words in the Z-code header \n\
+  extension table (Z-Spec 1.0). The -W switch also sets this. It defaults \n\
+  to 3, but can be set higher. (It can be set lower if no Unicode \n\
+  translation table is created.)\n");
+        return;
+    }
+    if (strcmp(command,"ZCODE_HEADER_FLAGS_3")==0)
+    {   printf(
+"  ZCODE_HEADER_FLAGS_3 is the value to store in the Flags 3 word of the \n\
+  header extension table (Z-Spec 1.1).\n");
+        return;
+    }
+    if (strcmp(command,"GLULX_OBJECT_EXT_BYTES")==0)
+    {   printf(
+"  GLULX_OBJECT_EXT_BYTES is an amount of additional space to add to each \n\
+  object record. It is initialized to zero bytes, and the game is free to \n\
+  use it as desired. (This is only meaningful in Glulx, since Z-code \n\
+  specifies the object structure.)\n");
         return;
     }
     if (strcmp(command,"MAX_STATIC_DATA")==0)
@@ -741,6 +782,12 @@ static void explain_parameter(char *command)
   table of ..variable values.\n");
         return;
     }
+    if (strcmp(command,"INDIV_PROP_START")==0)
+    {   printf(
+"  Properties 1 to INDIV_PROP_START-1 are common properties; individual\n\
+  properties are numbered INDIV_PROP_START and up.\n");
+        return;
+    }
     if (strcmp(command,"MAX_OBJ_PROP_COUNT")==0)
     {   printf(
 "  MAX_OBJ_PROP_COUNT is the maximum number of properties a single object \n\
@@ -817,10 +864,70 @@ static void explain_parameter(char *command)
   into the game file.\n");
         return;
     }
+    if (strcmp(command,"SERIAL")==0)
+    {
+        printf(
+"  SERIAL, if set, will be used as the six digit serial number written into \n\
+  the header of the output file.\n");
+        return;
+    }
 
     printf("No such memory setting as \"%s\"\n",command);
 
     return;
+}
+
+/* Parse a decimal number as an int32. Return true if a valid number
+   was found; otherwise print a warning and return false.
+
+   Anything over nine digits is considered an overflow; we report a
+   warning but return +/- 999999999 (and true). This is not entirely
+   clever about leading zeroes ("0000000001" is treated as an
+   overflow) but this is better than trying to detect genuine
+   overflows in a long.
+
+   (Some Glulx settings might conceivably want to go up to $7FFFFFFF,
+   which is a ten-digit number, but we're not going to allow that
+   today.)
+
+   This used to rely on atoi(), and we retain the atoi() behavior of
+   ignoring garbage characters after a valid decimal number.
+ */
+static int parse_memory_setting(char *str, char *label, int32 *result)
+{
+    char *cx = str;
+    char *ex;
+    long val;
+
+    *result = 0;
+
+    while (*cx == ' ') cx++;
+
+    val = strtol(cx, &ex, 10);    
+
+    if (ex == cx) {
+        printf("Bad numerical setting in $ command \"%s=%s\"\n",
+            label, str);
+        return 0;
+    }
+
+    if (*cx == '-') {
+        if (ex > cx+10) {
+            val = -999999999;
+            printf("Numerical setting underflowed in $ command \"%s=%s\" (limiting to %ld)\n",
+                label, str, val);
+        }
+    }
+    else {
+        if (ex > cx+9) {
+            val = 999999999;
+            printf("Numerical setting overflowed in $ command \"%s=%s\" (limiting to %ld)\n",
+                label, str, val);
+        }
+    }
+
+    *result = (int32)val;
+    return 1;
 }
 
 extern void memory_command(char *command)
@@ -838,10 +945,7 @@ extern void memory_command(char *command)
     for (i=0; command[i]!=0; i++)
     {   if (command[i]=='=')
         {   command[i]=0;
-            j=(int32) atoi(command+i+1);
-            if ((j==0) && (command[i+1]!='0'))
-            {   printf("Bad numerical setting in $ command \"%s=%s\"\n",
-                    command,command+i+1);
+            if (!parse_memory_setting(command+i+1, command, &j)) {
                 return;
             }
             if (strcmp(command,"BUFFER_LENGTH")==0)
@@ -879,6 +983,12 @@ extern void memory_command(char *command)
             {   NUM_ATTR_BYTES=j, flag=1;
                 NUM_ATTR_BYTES_g=NUM_ATTR_BYTES_z=j;
             }
+            if (strcmp(command,"ZCODE_HEADER_EXT_WORDS")==0)
+                ZCODE_HEADER_EXT_WORDS=j, flag=1;
+            if (strcmp(command,"ZCODE_HEADER_FLAGS_3")==0)
+                ZCODE_HEADER_FLAGS_3=j, flag=1;
+            if (strcmp(command,"GLULX_OBJECT_EXT_BYTES")==0)
+                GLULX_OBJECT_EXT_BYTES=j, flag=1;
             if (strcmp(command,"MAX_STATIC_DATA")==0)
                 MAX_STATIC_DATA=j, flag=1;
             if (strcmp(command,"MAX_OLDEPTH")==0)
@@ -938,6 +1048,8 @@ extern void memory_command(char *command)
                 MAX_SOURCE_FILES=j, flag=1;
             if (strcmp(command,"MAX_INDIV_PROP_TABLE_SIZE")==0)
                 MAX_INDIV_PROP_TABLE_SIZE=j, flag=1;
+            if (strcmp(command,"INDIV_PROP_START")==0)
+                INDIV_PROP_START=j, flag=1;
             if (strcmp(command,"MAX_OBJ_PROP_TABLE_SIZE")==0)
                 MAX_OBJ_PROP_TABLE_SIZE=j, flag=1;
             if (strcmp(command,"MAX_OBJ_PROP_COUNT")==0)
@@ -979,6 +1091,15 @@ extern void memory_command(char *command)
                 OMIT_UNUSED_ROUTINES=j, flag=1;
                 if (OMIT_UNUSED_ROUTINES > 1 || OMIT_UNUSED_ROUTINES < 0)
                     OMIT_UNUSED_ROUTINES = 1;
+            }
+            if (strcmp(command,"SERIAL")==0)
+            {
+                if (j >= 0 && j <= 999999)
+                {
+                    sprintf(serial_code_buffer,"%06d",j);
+                    serial_code_given_in_program = TRUE;
+                    flag=1;
+                }
             }
 
             if (flag==0)

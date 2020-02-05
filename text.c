@@ -1,8 +1,8 @@
 /* ------------------------------------------------------------------------- */
 /*   "text" : Text translation, the abbreviations optimiser, the dictionary  */
 /*                                                                           */
-/*   Part of Inform 6.32                                                     */
-/*   copyright (c) Graham Nelson 1993 - 2012                                 */
+/*   Part of Inform 6.34                                                     */
+/*   copyright (c) Graham Nelson 1993 - 2018                                 */
 /*                                                                           */
 /* ------------------------------------------------------------------------- */
 
@@ -180,9 +180,9 @@ static void make_abbrevs_lookup(void)
 /* ------------------------------------------------------------------------- */
 
 static int try_abbreviations_from(unsigned char *text, int i, int from)
-{   int j, k; char *p, c;
+{   int j, k; uchar *p, c;
     c=text[i];
-    for (j=from, p=(char *)abbreviations_at+from*MAX_ABBREV_LENGTH;
+    for (j=from, p=(uchar *)abbreviations_at+from*MAX_ABBREV_LENGTH;
          (j<no_abbreviations)&&(c==p[0]); j++, p+=MAX_ABBREV_LENGTH)
     {   if (text[i+1]==p[1])
         {   for (k=2; p[k]!=0; k++)
@@ -463,6 +463,7 @@ extern uchar *translate_text(uchar *p, uchar *p_limit, char *s_text)
 advance as part of 'Zcharacter table':", unicode);
             }
             i += textual_form_length - 1;
+            continue;
         }
 
         /*  '@' is the escape character in Inform string notation: the various
@@ -666,7 +667,11 @@ string; substituting '   '.");
         else {
           unicode = text_to_unicode((char *) (text_in+i));
           i += textual_form_length - 1;
-          if (unicode >= 0 && unicode < 256) {
+          if (unicode == '@' || unicode == '\0') {
+            write_z_char_g('@');
+            write_z_char_g(unicode ? '@' : '0');
+          }
+          else if (unicode >= 0 && unicode < 256) {
             write_z_char_g(unicode);
           }
           else {
@@ -794,7 +799,7 @@ static void compress_makebits(int entnum, int depth, int prevbit,
 /*   The compressor. This uses the usual Huffman compression algorithm. */
 void compress_game_text()
 {
-  int entities, branchstart, branches;
+  int entities=0, branchstart, branches;
   int numlive;
   int32 lx;
   int jx;
@@ -868,7 +873,7 @@ void compress_game_text()
     for (lx=0, ix=0; lx<no_strings; lx++) {
       int escapelen=0, escapetype=0;
       int done=FALSE;
-      int32 escapeval;
+      int32 escapeval=0;
       while (!done) {
         if (temporary_files_switch)
           ch = fgetc(Temp1_fp);
@@ -985,12 +990,12 @@ void compress_game_text()
     }
 
     huff_entity_root = (hufflist[0] - huff_entities);
-    no_huff_entities = branchstart+branches;
 
     for (ix=0; ix<MAXHUFFBYTES; ix++)
       bits.b[ix] = 0;
     compression_table_size = 12;
-    
+
+    no_huff_entities = 0; /* compress_makebits will total this up */
     compress_makebits(huff_entity_root, 0, -1, &bits);
   }
 
@@ -1008,7 +1013,7 @@ void compress_game_text()
   for (lx=0, ix=0; lx<no_strings; lx++) {
     int escapelen=0, escapetype=0;
     int done=FALSE;
-    int32 escapeval;
+    int32 escapeval=0;
     jx = 0; 
     compressed_offsets[lx] = compression_table_size + compression_string_size;
     compression_string_size++; /* for the type byte */
@@ -1099,6 +1104,7 @@ static void compress_makebits(int entnum, int depth, int prevbit,
   huffentity_t *ent = &(huff_entities[entnum]);
   char *cx;
 
+  no_huff_entities++;
   ent->addr = compression_table_size;
   ent->depth = depth;
   ent->bits = *bits;
@@ -1154,7 +1160,7 @@ typedef struct optab_s
     int32  popularity;
     int32  score;
     int32  location;
-    char text[64];
+    char text[MAX_ABBREV_LENGTH];
 } optab;
 static optab *bestyet, *bestyet2;
 
@@ -1164,7 +1170,7 @@ static char *sub_buffer;
 
 static void optimise_pass(void)
 {   int32 i; int t1, t2;
-    int32 j, j2, k, nl, matches, noflags, score, min, minat, x, scrabble, c;
+    int32 j, j2, k, nl, matches, noflags, score, min, minat=0, x, scrabble, c;
     for (i=0; i<256; i++) bestyet[i].length=0;
     for (i=0; i<no_occs; i++)
     {   if ((*(tlbtab[i].text)!=(int) '\n')&&(tlbtab[i].occurrences!=0))
@@ -1266,7 +1272,7 @@ static int any_overlap(char *s1, char *s2)
 
 extern void optimise_abbreviations(void)
 {   int32 i, j, t, max=0, MAX_GTABLE;
-    int32 j2, selected, available, maxat, nl;
+    int32 j2, selected, available, maxat=0, nl;
     tlb test;
 
     printf("Beginning calculation of optimal abbreviations...\n");
@@ -1829,7 +1835,7 @@ static int dictionary_find(char *dword)
 
 extern int dictionary_add(char *dword, int x, int y, int z)
 {   int n; uchar *p;
-    int ggfr, gfr, fr, r;
+    int ggfr = 0, gfr = 0, fr = 0, r = 0;
     int ggf = VACANT, gf = VACANT, f = VACANT, at = root;
     int a, b;
     int res=((version_number==3)?4:6);

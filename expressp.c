@@ -1,8 +1,8 @@
 /* ------------------------------------------------------------------------- */
 /*   "expressp" :  The expression parser                                     */
 /*                                                                           */
-/*   Part of Inform 6.32                                                     */
-/*   copyright (c) Graham Nelson 1993 - 2012                                 */
+/*   Part of Inform 6.34                                                     */
+/*   copyright (c) Graham Nelson 1993 - 2018                                 */
 /*                                                                           */
 /* ------------------------------------------------------------------------- */
 
@@ -57,7 +57,7 @@ extern int *variable_usage;
 int system_function_usage[32];
 
 static int get_next_etoken(void)
-{   int v, symbol, mark_symbol_as_used = FALSE,
+{   int v, symbol = 0, mark_symbol_as_used = FALSE,
         initial_bracket_level = bracket_level;
 
     etoken_count++;
@@ -128,6 +128,14 @@ but not used as a value:", unicode);
             current_token.symflags = sflags[symbol];
             switch(stypes[symbol])
             {   case ROUTINE_T:
+                    /* Replaced functions must always be backpatched
+                       because there could be another definition coming. */
+                    if (sflags[symbol] & REPLACE_SFLAG)
+                    {   current_token.marker = SYMBOL_MV;
+                        if (module_switch) import_symbol(symbol);
+                        v = symbol;
+                        break;
+                    }
                     current_token.marker = IROUTINE_MV;
                     break;
                 case GLOBAL_VARIABLE_T:
@@ -536,6 +544,52 @@ static int find_prec(token_data a, token_data b)
 
 /* --- Converting token to operand ----------------------------------------- */
 
+/* Must match the switch statement below */
+int z_system_constant_list[] =
+    { adjectives_table_SC,
+      actions_table_SC,
+      classes_table_SC,
+      identifiers_table_SC,
+      preactions_table_SC,
+      largest_object_SC,
+      strings_offset_SC,
+      code_offset_SC,
+      actual_largest_object_SC,
+      static_memory_offset_SC,
+      array_names_offset_SC,
+      readable_memory_offset_SC,
+      cpv__start_SC,
+      cpv__end_SC,
+      ipv__start_SC,
+      ipv__end_SC,
+      array__start_SC,
+      array__end_SC,
+      highest_attribute_number_SC,
+      attribute_names_array_SC,
+      highest_property_number_SC,
+      property_names_array_SC,
+      highest_action_number_SC,
+      action_names_array_SC,
+      highest_fake_action_number_SC,
+      fake_action_names_array_SC,
+      highest_routine_number_SC,
+      routine_names_array_SC,
+      routines_array_SC,
+      routine_flags_array_SC,
+      highest_global_number_SC,
+      global_names_array_SC,
+      globals_array_SC,
+      global_flags_array_SC,
+      highest_array_number_SC,
+      array_names_array_SC,
+      array_flags_array_SC,
+      highest_constant_number_SC,
+      constant_names_array_SC,
+      highest_class_number_SC,
+      class_objects_array_SC,
+      highest_object_number_SC,
+      -1 };
+
 static int32 value_of_system_constant_z(int t)
 {   switch(t)
     {   case adjectives_table_SC:
@@ -634,6 +688,22 @@ static int32 value_of_system_constant_z(int t)
 
     return(0);
 }
+
+/* Must match the switch statement below */
+int glulx_system_constant_list[] =
+    { classes_table_SC,
+      identifiers_table_SC,
+      array_names_offset_SC,
+      cpv__start_SC,
+      cpv__end_SC,
+      dictionary_table_SC,
+      dynam_string_table_SC,
+      grammar_table_SC,
+      actions_table_SC,
+      globals_array_SC,
+      highest_class_number_SC,
+      highest_object_number_SC,
+      -1 };
 
 static int32 value_of_system_constant_g(int t)
 { 
@@ -914,20 +984,23 @@ static int evaluate_term(token_data t, assembly_operand *o)
                      v = DICT_ENTRY_FLAG_POS+5;
                      break;
 
-                 /* ###fix: need to fill more of these in! */
-
-				 case lowest_attribute_number_SC:
+                 case lowest_attribute_number_SC:
                  case lowest_action_number_SC:
                  case lowest_routine_number_SC:
                  case lowest_array_number_SC:
                  case lowest_constant_number_SC:
                  case lowest_class_number_SC:
-                 case oddeven_packing_SC:
-                     o->type = BYTECONSTANT_OT; o->marker = 0; v = 0; break;
+                     o->type = BYTECONSTANT_OT;
+                     o->marker = 0;
+                     v = 0;
+                     break;
                  case lowest_object_number_SC:
                  case lowest_property_number_SC:
-                     o->type = BYTECONSTANT_OT; o->marker = 0; v = 1; break;                 
-					 
+                     o->type = BYTECONSTANT_OT;
+                     o->marker = 0;
+                     v = 1;
+                     break;
+
                  case lowest_global_number_SC:
                      o->type = BYTECONSTANT_OT; o->marker = 0; v = 0; break;
                  case lowest_fake_action_number_SC:
@@ -1035,7 +1108,7 @@ static void remove_bracket_layer_from_emitter_stack()
 static void emit_token(token_data t)
 {   assembly_operand o1, o2; int arity, stack_size, i;
     int op_node_number, operand_node_number, previous_node_number;
-    int32 x;
+    int32 x = 0;
 
     if (expr_trace_level >= 2)
     {   printf("Output: %-19s%21s ", t.text, "");
@@ -1123,7 +1196,7 @@ static void emit_token(token_data t)
             {   int index = emitter_stack[emitter_sp-arity].value;
                 if(!glulx_mode)
                     index -= 256;
-                if(index > 0 && index < NUMBER_SYSTEM_FUNCTIONS)
+                if(index >= 0 && index < NUMBER_SYSTEM_FUNCTIONS)
                     error_named("System function name used as a value:", system_functions.keywords[index]);
                 else
                     compiler_error("Found unnamed system function used as a value");
@@ -1483,7 +1556,7 @@ static void check_property_operator(int from_node)
 static void check_lvalues(int from_node)
 {   int below = ET[from_node].down;
     int opnum = ET[from_node].operator_number, opnum_below;
-    int lvalue_form, i, j;
+    int lvalue_form, i, j = 0;
 
     if (below != -1)
     {
@@ -1753,9 +1826,8 @@ static assembly_operand check_conditions(assembly_operand AO, int context)
         ET[n].up = -1;
         ET[n].right = -1;
         ET[n].value = AO;
-        AO.type = EXPRESSION_OT;
+        INITAOT(&AO, EXPRESSION_OT);
         AO.value = n;
-        AO.marker = 0;
     }
 
     insert_exp_to_cond(AO.value, context);
@@ -1884,7 +1956,8 @@ extern assembly_operand parse_expression(int context)
 
         if ((a.type == ENDEXP_TT) && (b.type == ENDEXP_TT))
         {   if (emitter_sp == 0)
-            {   compiler_error("SR error: emitter stack empty");
+            {   error("No expression between brackets '(' and ')'");
+                put_token_back();
                 return AO;
             }
             if (emitter_sp > 1)

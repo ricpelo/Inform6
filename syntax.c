@@ -1,8 +1,8 @@
 /* ------------------------------------------------------------------------- */
 /*   "syntax" : Syntax analyser and compiler                                 */
 /*                                                                           */
-/*   Part of Inform 6.32                                                     */
-/*   copyright (c) Graham Nelson 1993 - 2012                                 */
+/*   Part of Inform 6.34                                                     */
+/*   copyright (c) Graham Nelson 1993 - 2018                                 */
 /*                                                                           */
 /* ------------------------------------------------------------------------- */
 
@@ -46,7 +46,7 @@ static void begin_syntax_line(int statement_mode)
 
     if (debugfile_switch)
     {   get_next_token();
-        debug_line_ref = token_line_ref;
+        statement_debug_location = get_token_location();
         put_token_back();
     }
 }
@@ -320,10 +320,10 @@ static void parse_switch_spec(assembly_operand switch_value, int label,
 
         if (action_switch)
         {   get_next_token();
-            spec_stack[spec_sp].type = 
-                ((!glulx_mode) ? LONG_CONSTANT_OT : CONSTANT_OT);
-            spec_stack[spec_sp].value = 0;
-            spec_stack[spec_sp].marker = 0;
+            if (token_type == SQ_TT || token_type == DQ_TT) {
+                ebf_error("action (or fake action) name", token_text);
+                continue;
+            }
             spec_stack[spec_sp] = action_of_name(token_text);
 
             if (spec_stack[spec_sp].value == -1)
@@ -419,7 +419,8 @@ extern int32 parse_routine(char *source, int embedded_flag, char *name,
 {   int32 packed_address; int i; int debug_flag = FALSE;
     int switch_clause_made = FALSE, default_clause_made = FALSE,
         switch_label = 0;
-    dbgl start_line_ref = token_line_ref;
+    debug_location_beginning beginning_debug_location =
+        get_token_location_beginning();
 
     /*  (switch_label needs no initialisation here, but it prevents some
         compilers from issuing warnings)   */
@@ -451,6 +452,12 @@ extern int32 parse_routine(char *source, int embedded_flag, char *name,
             break;
         }
 
+        if (strlen(token_text) > MAX_IDENTIFIER_LENGTH)
+        {   error_named("Local variable identifier too long:", token_text);
+            panic_mode_error_recovery();
+            break;
+        }
+
         if (no_locals == MAX_LOCAL_VARIABLES-1)
         {   error_numbered("Too many local variables for a routine; max is",
                 MAX_LOCAL_VARIABLES-1);
@@ -474,7 +481,7 @@ extern int32 parse_routine(char *source, int embedded_flag, char *name,
         sflags[r_symbol] |= STAR_SFLAG;
 
     packed_address = assemble_routine_header(no_locals, debug_flag,
-        name, &start_line_ref, embedded_flag, r_symbol);
+        name, embedded_flag, r_symbol);
 
     do
     {   begin_syntax_line(TRUE);
@@ -483,8 +490,10 @@ extern int32 parse_routine(char *source, int embedded_flag, char *name,
 
         if (token_type == EOF_TT)
         {   ebf_error("']'", token_text);
+            assemble_routine_end
+                (embedded_flag,
+                 get_token_location_end(beginning_debug_location));
             put_token_back();
-            assemble_routine_end(embedded_flag, &token_line_ref);
             break;
         }
 
@@ -494,7 +503,11 @@ extern int32 parse_routine(char *source, int embedded_flag, char *name,
                 assemble_label_no(switch_label);
             directives.enabled = TRUE;
             sequence_point_follows = TRUE;
-            assemble_routine_end(embedded_flag, &token_line_ref);
+            get_next_token();
+            assemble_routine_end
+                (embedded_flag,
+                 get_token_location_end(beginning_debug_location));
+            put_token_back();
             break;
         }
 
@@ -553,12 +566,10 @@ extern int32 parse_routine(char *source, int embedded_flag, char *name,
                 put_token_back(); put_token_back();
 
                 if (!glulx_mode) {
-                    AO.type = VARIABLE_OT; AO.value = 249; AO.marker = 0;
+                    INITAOTV(&AO, VARIABLE_OT, 249);
                 }
                 else {
-                    AO.type = GLOBALVAR_OT;
-                    AO.value = MAX_LOCAL_VARIABLES+6; /* sw__var */
-                    AO.marker = 0;
+                    INITAOTV(&AO, GLOBALVAR_OT, MAX_LOCAL_VARIABLES+6); /* sw__var */
                 }
                 parse_switch_spec(AO, switch_label, TRUE);
 
@@ -579,7 +590,7 @@ extern int32 parse_routine(char *source, int embedded_flag, char *name,
 
 extern void parse_code_block(int break_label, int continue_label,
     int switch_rule)
-{   int switch_clause_made = FALSE, default_clause_made = FALSE, switch_label,
+{   int switch_clause_made = FALSE, default_clause_made = FALSE, switch_label = 0,
         unary_minus_flag;
 
     begin_syntax_line(TRUE);
